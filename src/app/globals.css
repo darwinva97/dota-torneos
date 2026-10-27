@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* El Pozo: noche del mapa de Dota. El oro es solo para dinero; verde Radiant y
+   rojo Dire solo para ganar/perder; el morado Yape solo en la recarga. */
+@theme {
+  --color-noche: #1a2130;
+  --color-losa: #232c3c;
+  --color-losa-alta: #2c374a;
+  --color-borde: #3a4659;
+  --color-pergamino: #ece6d6;
+  --color-niebla: #9aa3b2;
+  --color-oro: #e8b54a;
+  --color-oro-oscuro: #b8892b;
+  --color-radiant: #5fa35b;
+  --color-dire: #c4473a;
+  --color-yape: #7b2c8e;
+
+  --font-sans: var(--font-barlow), system-ui, sans-serif;
+  --font-cifra: var(--font-barlow-condensed), var(--font-barlow), sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-noche);
+  color: var(--color-pergamino);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cifras de dinero: el contador de oro. Tabulares para que no bailen. */
+.cifra {
+  font-family: var(--font-cifra);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-cifra);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-oro);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@layer components {
+  .boton {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-oro px-4 py-2 font-semibold text-noche
+      transition-[background-color,transform] duration-150 hover:bg-[#f0c463] active:scale-[0.97]
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .boton-sobrio {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-borde px-4 py-2 font-medium
+      text-pergamino transition-[background-color,transform] duration-150 hover:bg-losa-alta active:scale-[0.97]
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .boton-peligro {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-dire/60 px-4 py-2 font-medium
+      text-[#e88a7f] transition-[background-color,transform] duration-150 hover:bg-dire/15 active:scale-[0.97]
+      disabled:opacity-50;
+  }
+  .campo {
+    @apply w-full rounded-md border border-borde bg-noche px-3 py-2 text-pergamino placeholder:text-niebla/60
+      focus:border-oro focus:outline-none;
+  }
+  .etiqueta {
+    @apply mb-1 block text-[0.95rem] font-medium text-pergamino;
+  }
+  .ayuda {
+    @apply mt-1 block text-sm text-niebla;
+  }
+  .panel {
+    @apply rounded-lg border border-borde bg-losa;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }
