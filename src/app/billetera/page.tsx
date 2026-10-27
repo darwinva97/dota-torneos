@@ -3,7 +3,8 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Clock } from "lucide-react";
 import { exigirUsuario } from "@/lib/sesion";
-import { GRUPOS, movimientos, resumen, retirosDe, type Grupo } from "@/lib/billetera";
+import { deudasDe, GRUPOS, movimientos, resumen, retirosDe, type Grupo } from "@/lib/billetera";
+import { FilaDeuda } from "@/components/deudas";
 import { recargaAbiertaDe, recargasDe } from "@/lib/yape/recargas";
 import { soles } from "@/lib/dinero";
 import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/components/ui";
@@ -17,6 +18,7 @@ const FILTROS: { valor?: Grupo; texto: string }[] = [
   { valor: "yape", texto: "Yape" },
   { valor: "torneos", texto: "Torneos" },
   { valor: "apuestas", texto: "Apuestas" },
+  { valor: "deudas", texto: "Deudas" },
 ];
 
 export default function Billetera({ searchParams }: PageProps<"/billetera">) {
@@ -39,6 +41,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera
   const abierta = recargaAbiertaDe(u.id);
   const recargas = recargasDe(u.id).filter((x) => x.estado !== "escuchando").slice(0, 5);
   const retirosPend = retirosDe(u.id).filter((x) => x.estado === "pendiente");
+  const deudas = deudasDe(u.id);
 
   return (
     <div className="space-y-10">
@@ -104,6 +107,17 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera
                   <span className="ml-auto text-sm text-niebla">pedido el {fecha(x.creado)}</span>
                 </Link>
               </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {deudas.length > 0 && (
+        <section id="deudas" className="scroll-mt-24">
+          <h2 className="mb-3 text-2xl">Deudas</h2>
+          <ul className="grid gap-3 md:grid-cols-2">
+            {deudas.map((d) => (
+              <FilaDeuda key={d.id} d={d} yo={u.id} />
             ))}
           </ul>
         </section>

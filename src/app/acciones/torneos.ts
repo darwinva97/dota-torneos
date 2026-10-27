@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { exigirUsuario } from "@/lib/sesion";
-import { aEstado, type Estado } from "@/lib/errores";
+import { aEstado, ErrorUsuario, type Estado } from "@/lib/errores";
 import { leerSoles } from "@/lib/dinero";
 import * as T from "@/lib/torneos";
 import { crearMercado, mercadosDeTorneo } from "@/lib/mercados";
@@ -22,6 +22,8 @@ export async function accionCrearTorneo(_: Estado, fd: FormData): Promise<Estado
       entrada: leerSoles(fd.get("entrada")),
       garantia: fd.get("con_garantia") ? leerSoles(fd.get("garantia")) : 0,
       limiteLlegada: txt(fd, "limite_llegada"),
+      premioBase: txt(fd, "premio_base").trim() ? leerSoles(fd.get("premio_base")) : 0,
+      sumaRecaudado: fd.get("premio_fijo") !== "on",
       tamEquipo: num(fd, "tam_equipo"),
       maxEquipos: num(fd, "max_equipos"),
       reparto: txt(fd, "reparto"),
@@ -66,6 +68,14 @@ export async function accionCancelarTorneo(_: Estado, fd: FormData) {
     (u) => T.cancelarTorneo(num(fd, "torneo_id"), u.id, !!u.es_admin),
     "Torneo cancelado. Se devolvieron todas las entradas y apuestas.",
   );
+}
+
+export async function accionAumentarPremio(_: Estado, fd: FormData) {
+  const monto = leerSoles(fd.get("monto"));
+  return ejecutar((u) => {
+    if (monto === null) throw new ErrorUsuario("Escribe cuánto agregas al premio, por ejemplo 20.");
+    T.aumentarPremio(num(fd, "torneo_id"), u.id, monto);
+  }, "Premio aumentado.");
 }
 
 export async function accionAsistencia(_: Estado, fd: FormData) {

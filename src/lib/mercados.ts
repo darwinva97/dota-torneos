@@ -1,7 +1,7 @@
 import "server-only";
 import { db, transaccion } from "./db";
 import { exigir } from "./errores";
-import { mover } from "./billetera";
+import { exigirSinDeudas, mover } from "./billetera";
 
 // Apuestas aparte de la inscripción. Cada mercado es una pregunta con varias
 // opciones; todo lo apostado va a un pozo común y quienes aciertan se lo
@@ -112,6 +112,7 @@ export function jugadasDe(mercadoId: number) {
 
 export function apostar(usuarioId: number, mercadoId: number, opcionId: number, monto: number) {
   exigir(monto >= 100, "La apuesta mínima es S/ 1.00.");
+  exigirSinDeudas(usuarioId);
   transaccion(() => {
     const m = mercado(mercadoId);
     exigir(m, "Esa apuesta no existe.");

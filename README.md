@@ -7,6 +7,11 @@ https://apuestas.bezenti.com.
   equipos, reparto «todo al campeón» o 70/30). Al unirse a un equipo se cobra la
   entrada; quien sale antes de empezar la recupera. El organizador sortea un cuadro
   de eliminación directa, marca los ganadores y el pozo se reparte solo.
+  - **Garantía de puntualidad** opcional: parte de la inscripción se devuelve a
+    quien llega a tiempo y va al premio si falta.
+  - **Premio base**: el organizador puede poner un monto de su saldo (y subirlo
+    después). Por defecto se le suma lo recaudado; con «premio fijo» el premio es
+    solo la base y lo recaudado vuelve al organizador al terminar.
 - **Apuestas aparte**: pozo común (parimutuel). Pueden ser libres (las resuelve quien
   las crea) o sobre una partida o el campeón de un torneo (se resuelven solas).
 - **Billetera**: todo el dinero va en céntimos y cada cambio deja un movimiento.
@@ -16,6 +21,11 @@ https://apuestas.bezenti.com.
   la solicitud le llega al admin (contador en el menú y la campana). El admin lo
   yapea y anota el número de operación, o lo rechaza con un motivo y el monto
   vuelve al saldo. Mientras esté pendiente, el usuario puede cancelarlo.
+- **Deudas y retenciones**: el admin asigna a un jugador un monto que debe a
+  alguien. Se le retiene al momento lo que tenga y, después, todo lo que le entre
+  (recargas, premios, devoluciones) paga primero la deuda y pasa al acreedor.
+  Mientras deba no puede inscribirse, apostar ni retirar. El admin puede
+  perdonar lo que falte.
 
 El primer usuario que se registra es admin. Para nombrar a otro:
 `npx tsx --conditions=react-server scripts/hacer-admin.ts <usuario>`.

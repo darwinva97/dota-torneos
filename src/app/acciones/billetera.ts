@@ -5,7 +5,7 @@ import { refresh } from "next/cache";
 import { exigirAdmin, exigirUsuario } from "@/lib/sesion";
 import { aEstado, exigir, type Estado } from "@/lib/errores";
 import { leerSoles } from "@/lib/dinero";
-import { cancelarRetiro, pedirRetiro, resolverRetiro } from "@/lib/billetera";
+import { cancelarRetiro, crearDeuda, pedirRetiro, perdonarDeuda, resolverRetiro } from "@/lib/billetera";
 import * as R from "@/lib/yape/recargas";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
@@ -106,4 +106,27 @@ export async function accionSimularPago(_: Estado, fd: FormData): Promise<Estado
       fuente: "simulador",
     });
   }, "Pago simulado enviado.");
+}
+
+export async function accionCrearDeuda(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  try {
+    const monto = leerSoles(fd.get("monto"));
+    exigir(monto, "Escribe el monto de la deuda.");
+    crearDeuda({
+      deudorId: num(fd, "deudor_id"),
+      acreedorId: num(fd, "acreedor_id"),
+      monto,
+      motivo: String(fd.get("motivo") ?? ""),
+      creadoPor: admin.id,
+    });
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Deuda asignada. Si tenía saldo, ya se le retuvo." };
+}
+
+export async function accionPerdonarDeuda(_: Estado, fd: FormData) {
+  return comoAdmin(() => perdonarDeuda(num(fd, "deuda_id")), "Deuda perdonada.");
 }

@@ -2,7 +2,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { db, transaccion } from "./db";
 import { exigir } from "./errores";
-import { mover } from "./billetera";
+import { exigirSinDeudas, mover } from "./billetera";
 import { soles } from "./dinero";
 import { anularMercado, cerrarPorPartida, resolverPorEquipo } from "./mercados";
 
@@ -28,7 +28,13 @@ export type Torneo = {
   organizador: string;
   fecha: string;
   campeon_id: number | null;
+  /** Lo que el organizador puso de su saldo como premio base. */
+  premio_base: number;
+  /** 1: lo recaudado se suma al premio. 0: premio fijo y lo recaudado va al organizador. */
+  suma_recaudado: number;
   /** Entradas más las garantías que ya pasaron al pozo. */
+  recaudado: number;
+  /** Lo que se reparte al final: base + (recaudado si se suma). */
   pozo: number;
   /** Garantías cobradas que todavía no se liquidan (antes del sorteo). */
   garantias_pendientes: number;
@@ -62,7 +68,10 @@ export type Partida = {
 
 const SELECT_TORNEO = `
   SELECT t.*, u.usuario AS organizador,
-    COALESCE((SELECT SUM(aporte + garantia_pozo) FROM integrantes i WHERE i.torneo_id = t.id), 0) AS pozo,
+    COALESCE((SELECT SUM(aporte + garantia_pozo) FROM integrantes i WHERE i.torneo_id = t.id), 0) AS recaudado,
+    t.premio_base + CASE WHEN t.suma_recaudado
+      THEN COALESCE((SELECT SUM(aporte + garantia_pozo) FROM integrantes i WHERE i.torneo_id = t.id), 0) ELSE 0 END
+      AS pozo,
     CASE WHEN t.estado = 'inscripciones'
       THEN COALESCE((SELECT SUM(garantia) FROM integrantes i WHERE i.torneo_id = t.id), 0) ELSE 0 END
       AS garantias_pendientes,
@@ -124,32 +133,63 @@ export function crearTorneo(d: {
   maxEquipos: number;
   reparto: string;
   fecha: string;
+  premioBase: number | null;
+  sumaRecaudado: boolean;
 }) {
   exigir(d.nombre.trim().length >= 3, "Ponle un nombre al torneo.");
+  exigir(d.premioBase !== null && d.premioBase >= 0, "Escribe el premio base en soles, o 0 si no pones nada.");
+  exigir(
+    d.sumaRecaudado || d.premioBase > 0,
+    "Con premio fijo hace falta un premio base: si no, no habría nada que ganar.",
+  );
   exigir(d.entrada !== null && d.entrada >= 0, "Escribe cuánto pone cada jugador al pozo (puede ser 0).");
   exigir(d.garantia !== null && d.garantia >= 0, "Escribe la garantía en soles, o 0 si no hay garantía.");
   exigir(d.tamEquipo >= 1 && d.tamEquipo <= 5, "Los equipos son de 1 a 5 jugadores.");
   exigir(d.maxEquipos >= 2 && d.maxEquipos <= 16, "El torneo admite de 2 a 16 equipos.");
   exigir(d.reparto === "ganador" || d.reparto === "70-30", "Elige cómo se reparte el pozo.");
-  const r = db()
-    .prepare(
-      `INSERT INTO torneos (nombre, descripcion, entrada, garantia, limite_llegada, tam_equipo, max_equipos,
-         reparto, organizador_id, fecha)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      d.nombre.trim(),
-      d.descripcion.trim(),
-      d.entrada,
-      d.garantia,
-      d.garantia ? d.limiteLlegada.trim() : "",
-      d.tamEquipo,
-      d.maxEquipos,
-      d.reparto,
-      d.organizadorId,
-      d.fecha.trim(),
-    );
-  return Number(r.lastInsertRowid);
+  return transaccion(() => {
+    const r = db()
+      .prepare(
+        `INSERT INTO torneos (nombre, descripcion, entrada, garantia, limite_llegada, tam_equipo, max_equipos,
+           reparto, organizador_id, fecha, premio_base, suma_recaudado)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        d.nombre.trim(),
+        d.descripcion.trim(),
+        d.entrada,
+        d.garantia,
+        d.garantia ? d.limiteLlegada.trim() : "",
+        d.tamEquipo,
+        d.maxEquipos,
+        d.reparto,
+        d.organizadorId,
+        d.fecha.trim(),
+        d.premioBase,
+        d.sumaRecaudado ? 1 : 0,
+      );
+    // El premio base sale del saldo del organizador y queda reservado.
+    if (d.premioBase! > 0) {
+      exigirSinDeudas(d.organizadorId);
+      mover(d.organizadorId, -d.premioBase!, "premio_base", `Premio base de ${d.nombre.trim()}`);
+    }
+    return Number(r.lastInsertRowid);
+  });
+}
+
+// Solo quien organiza puede subir el premio, porque al cancelar se le devuelve
+// a él todo el premio base.
+export function aumentarPremio(torneoId: number, usuarioId: number, monto: number) {
+  exigir(monto >= 100, "Aumenta el premio en S/ 1.00 o más.");
+  transaccion(() => {
+    const t = torneo(torneoId);
+    exigir(t, "Ese torneo no existe.");
+    exigir(t.organizador_id === usuarioId, "Solo quien organiza el torneo puede aumentar el premio.");
+    exigir(t.estado === "inscripciones" || t.estado === "en_curso", "Este torneo ya terminó.");
+    exigirSinDeudas(usuarioId);
+    mover(usuarioId, -monto, "premio_base", `Aumentaste el premio de ${t.nombre}`);
+    db().prepare("UPDATE torneos SET premio_base = premio_base + ? WHERE id = ?").run(monto, torneoId);
+  });
 }
 
 function exigirInscripciones(torneoId: number) {
@@ -169,6 +209,7 @@ function exigirLibre(torneoId: number, usuarioId: number) {
 // La inscripción son dos movimientos: lo que va al pozo y la garantía, que se
 // liquida al sortear el cuadro según la asistencia.
 function pagarEntrada(t: Torneo, usuarioId: number, equipoId: number) {
+  exigirSinDeudas(usuarioId);
   if (t.entrada > 0) mover(usuarioId, -t.entrada, "inscripcion", `Entrada al pozo de ${t.nombre}`);
   if (t.garantia > 0) mover(usuarioId, -t.garantia, "garantia", `Garantía de puntualidad de ${t.nombre}`);
   db()
@@ -391,6 +432,10 @@ function finalizar(t: Torneo, campeon: number, subcampeon: number) {
       mover(i.usuario_id, monto, "premio", `${puesto} de ${t.nombre} (${soles(total)} para ${e.nombre})`);
     }
   }
+  // Con premio fijo, lo recaudado no entra al premio: se lo lleva el organizador.
+  if (!t.suma_recaudado && t.recaudado > 0) {
+    mover(t.organizador_id, t.recaudado, "recaudacion", `Recaudación de ${t.nombre} (premio fijo)`);
+  }
   db().prepare("UPDATE torneos SET estado = 'finalizado', campeon_id = ? WHERE id = ?").run(campeon, t.id);
   resolverPorEquipo({ torneoCampeon: t.id }, campeon);
 }
@@ -414,6 +459,9 @@ export function cancelarTorneo(torneoId: number, usuarioId: number, esAdmin: boo
       .prepare("SELECT id FROM mercados WHERE torneo_id = ? AND estado IN ('abierto','cerrado')")
       .all(torneoId) as { id: number }[];
     for (const m of mercados) anularMercado(m.id, "Torneo cancelado");
+    if (t.premio_base > 0) {
+      mover(t.organizador_id, t.premio_base, "premio_base_devuelto", `Torneo cancelado: ${t.nombre}`);
+    }
     db().prepare("UPDATE torneos SET estado = 'cancelado' WHERE id = ?").run(torneoId);
   });
 }

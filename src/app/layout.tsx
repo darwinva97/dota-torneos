@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow, Chakra_Petch } from "next/font/google";
 import { Cuenta, DegradadosSvg, Logo, Navegacion } from "@/components/marco";
+import { AvisoDeuda } from "@/components/deudas";
 import "./globals.css";
 
 const barlow = Barlow({ variable: "--font-barlow", subsets: ["latin"], weight: ["400", "500", "600"] });
@@ -40,7 +41,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               </div>
             </div>
           </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-8 pb-28 sm:px-6 lg:pb-12">{children}</main>
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-8 pb-28 sm:px-6 lg:pb-12">
+            <AvisoDeuda />
+            {children}
+          </main>
         </div>
 
         {/* Celular: pestañas abajo, al alcance del pulgar. */}

@@ -145,6 +145,21 @@ CREATE TABLE IF NOT EXISTS recargas (
   creado TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Deudas o montos a retener que el admin asigna a un jugador. Todo lo que le
+-- entra se usa primero para pagarlas, y lo cobrado pasa al acreedor.
+CREATE TABLE IF NOT EXISTS deudas (
+  id INTEGER PRIMARY KEY,
+  deudor_id INTEGER NOT NULL REFERENCES usuarios(id),
+  acreedor_id INTEGER NOT NULL REFERENCES usuarios(id),
+  monto INTEGER NOT NULL CHECK (monto > 0),
+  pagado INTEGER NOT NULL DEFAULT 0,
+  motivo TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  creado_por INTEGER NOT NULL REFERENCES usuarios(id),
+  creado TEXT NOT NULL DEFAULT (datetime('now')),
+  resuelto TEXT
+);
+
 CREATE TABLE IF NOT EXISTS retiros (
   id INTEGER PRIMARY KEY,
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
@@ -183,6 +198,10 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   // motivo al rechazar.
   ["retiros", "operacion", "TEXT NOT NULL DEFAULT ''"],
   ["retiros", "nota", "TEXT NOT NULL DEFAULT ''"],
+  // Premio base que pone el organizador de su saldo, y si lo recaudado
+  // (inscripciones y garantías perdidas) se suma al premio o va al organizador.
+  ["torneos", "premio_base", "INTEGER NOT NULL DEFAULT 0"],
+  ["torneos", "suma_recaudado", "INTEGER NOT NULL DEFAULT 1"],
 ];
 
 function migrar(db: Database.Database) {

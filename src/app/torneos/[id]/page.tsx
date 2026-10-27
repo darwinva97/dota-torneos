@@ -17,6 +17,7 @@ import { Formulario, Enviar } from "@/components/formulario";
 import { Cargando, Dinero, Estado, Vacio } from "@/components/ui";
 import {
   accionApostarEnTorneo,
+  accionAumentarPremio,
   accionAsistencia,
   accionCancelarTorneo,
   accionCrearEquipo,
@@ -63,9 +64,16 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
           {t.descripcion && <p className="mt-3 whitespace-pre-line">{t.descripcion}</p>}
         </div>
         <div className="text-right">
-          <div className="text-niebla">Pozo</div>
+          <div className="text-niebla">{t.suma_recaudado ? "Premio" : "Premio fijo"}</div>
           <Dinero centimos={t.pozo} className="text-6xl sm:text-7xl" />
-          {t.garantias_pendientes > 0 && (
+          {(t.premio_base > 0 || !t.suma_recaudado) && (
+            <p className="mt-1 max-w-[28ch] text-sm text-niebla">
+              {t.suma_recaudado
+                ? `${soles(t.premio_base)} de base que puso ${t.organizador} más ${soles(t.recaudado)} recaudado`
+                : `Lo pone ${t.organizador}. Lo recaudado (${soles(t.recaudado)}) vuelve a quien organiza.`}
+            </p>
+          )}
+          {t.garantias_pendientes > 0 && !!t.suma_recaudado && (
             <p className="mt-1 max-w-[24ch] text-sm text-niebla">
               y hasta {soles(t.garantias_pendientes)} más con las garantías de quienes falten
             </p>
@@ -135,7 +143,20 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
       )}
 
       {organiza && (t.estado === "inscripciones" || t.estado === "en_curso") && (
-        <section className="border-t border-borde pt-6">
+        <section className="flex flex-wrap items-end justify-between gap-6 border-t border-borde pt-6">
+          {t.organizador_id === u.id && (
+            <Formulario accion={accionAumentarPremio} className="flex flex-wrap items-end gap-3">
+              <input type="hidden" name="torneo_id" value={t.id} />
+              <label>
+                <span className="etiqueta">Aumentar el premio</span>
+                <span className="flex items-center rounded-md border border-borde bg-hondo focus-within:border-oro">
+                  <span className="pl-3 text-niebla">S/</span>
+                  <input name="monto" required inputMode="decimal" placeholder="20" className="w-28 bg-transparent px-2 py-2 focus:outline-none" />
+                </span>
+              </label>
+              <Enviar variante="boton-sobrio">Agregar de mi saldo</Enviar>
+            </Formulario>
+          )}
           <Formulario
             accion={accionCancelarTorneo}
             confirmar="¿Cancelar el torneo? Se devuelven todas las entradas y se anulan sus apuestas."
@@ -308,8 +329,9 @@ function TarjetaEquipo({
 function textoInscripcion(t: Torneo) {
   const costo = costoInscripcion(t);
   if (costo === 0) return "Inscripción gratis.";
-  if (t.garantia === 0) return `Inscripción de ${soles(costo)} por jugador, todo al pozo.`;
-  return `Inscripción de ${soles(costo)} por jugador: ${soles(t.entrada)} van al pozo y ${soles(t.garantia)} son garantía de puntualidad, que se devuelve a quien llega a tiempo${t.limite_llegada ? ` (antes de ${t.limite_llegada})` : ""} y va al pozo si falta.`;
+  const destino = t.suma_recaudado ? "al premio" : "a quien organiza";
+  if (t.garantia === 0) return `Inscripción de ${soles(costo)} por jugador, todo ${destino}.`;
+  return `Inscripción de ${soles(costo)} por jugador: ${soles(t.entrada)} van ${destino} y ${soles(t.garantia)} son garantía de puntualidad, que se devuelve a quien llega a tiempo${t.limite_llegada ? ` (antes de ${t.limite_llegada})` : ""} y va ${destino} si falta.`;
 }
 
 function EstadoAsistencia({ asistencia }: { asistencia: Equipo["integrantes"][number]["asistencia"] }) {

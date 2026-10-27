@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Formulario, Enviar } from "@/components/formulario";
 import { accionCrearTorneo } from "../../acciones/torneos";
 import { CamposInscripcion } from "./inscripcion";
+import { CamposPremio } from "./premio";
 
 export const metadata: Metadata = { title: "Crear torneo" };
 
@@ -18,6 +19,7 @@ export default function NuevoTorneo() {
           <input name="nombre" required placeholder="Copa del Barrio" className="campo" />
         </label>
         <CamposInscripcion />
+        <CamposPremio />
         <div className="grid gap-5 sm:grid-cols-2">
           <label className="block">
             <span className="etiqueta">Jugadores por equipo</span>

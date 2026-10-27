@@ -3,6 +3,9 @@ import {
   ArrowUpFromLine,
   Coins,
   Dices,
+  Gift,
+  HandCoins,
+  PiggyBank,
   Swords,
   Timer,
   Trophy,
@@ -25,6 +28,11 @@ export const TIPOS: Record<TipoMovimiento, { texto: string; Icono: LucideIcon }>
   apuesta: { texto: "Apuesta", Icono: Dices },
   apuesta_ganada: { texto: "Apuesta ganada", Icono: Coins },
   apuesta_devuelta: { texto: "Apuesta devuelta", Icono: Undo2 },
+  premio_base: { texto: "Premio que pusiste", Icono: Gift },
+  premio_base_devuelto: { texto: "Premio devuelto", Icono: Undo2 },
+  recaudacion: { texto: "Recaudación de tu torneo", Icono: PiggyBank },
+  deuda: { texto: "Pago de deuda", Icono: HandCoins },
+  cobro_deuda: { texto: "Cobro de deuda", Icono: HandCoins },
 };
 
 export function ListaMovimientos({

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { ArrowUpFromLine, Inbox, ScanSearch } from "lucide-react";
 import { exigirAdmin } from "@/lib/sesion";
 import {
+  listarDeudas,
   movimientosGlobales,
   resumenUsuarios,
   retirosPendientes,
@@ -15,8 +16,11 @@ import { Formulario, Enviar } from "@/components/formulario";
 import { Copiar } from "@/components/copiar";
 import { ListaMovimientos } from "@/components/movimientos";
 import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/components/ui";
+import { FilaDeuda } from "@/components/deudas";
 import {
   accionAprobarRecarga,
+  accionCrearDeuda,
+  accionPerdonarDeuda,
   accionPagarRetiro,
   accionRechazarRecarga,
   accionRechazarRetiro,
@@ -29,6 +33,7 @@ const PESTANAS = [
   { valor: "yapes", texto: "Yapes recibidos" },
   { valor: "movimientos", texto: "Movimientos" },
   { valor: "retiros", texto: "Retiros resueltos" },
+  { valor: "deudas", texto: "Deudas cerradas" },
   { valor: "usuarios", texto: "Usuarios" },
 ] as const;
 type Pestana = (typeof PESTANAS)[number]["valor"];
@@ -45,7 +50,7 @@ export default function Admin({ searchParams }: PageProps<"/admin">) {
 }
 
 async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["searchParams"] }) {
-  await exigirAdmin();
+  const admin = await exigirAdmin();
   const { ver } = await searchParams;
   const pestana: Pestana = PESTANAS.some((p) => p.valor === ver) ? (ver as Pestana) : "yapes";
   const retiros = retirosPendientes();
@@ -54,6 +59,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
   const enCirculacion = usuarios.reduce((s, u) => s + u.saldo, 0);
   const porPagar = retiros.reduce((s, r) => s + r.monto, 0);
   const simulador = process.env.YAPE_SIMULADOR === "1";
+  const deudas = listarDeudas("pendiente");
 
   return (
     <div className="space-y-12">
@@ -162,6 +168,69 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
         )}
       </section>
 
+      <section>
+        <h2 className="mb-2 text-3xl">Deudas y retenciones</h2>
+        <p className="mb-5 max-w-[70ch] text-niebla">
+          Asigna a un jugador un monto que debe. Si tiene saldo se le retiene al momento; si no, se le cobra de lo
+          próximo que recargue o gane. Mientras deba, no puede inscribirse, apostar ni retirar.
+        </p>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[22rem_1fr]">
+          <Formulario accion={accionCrearDeuda} className="panel space-y-3 p-5">
+            <label className="block">
+              <span className="etiqueta">Jugador que debe</span>
+              <select name="deudor_id" required className="campo" defaultValue="">
+                <option value="" disabled>
+                  Elige un jugador
+                </option>
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.usuario} ({u.nombre_yape})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="etiqueta">A favor de</span>
+              <select name="acreedor_id" required className="campo" defaultValue={admin.id}>
+                {usuarios.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.id === admin.id ? `${u.usuario} (tú, el pozo)` : u.usuario}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="etiqueta">Monto</span>
+              <span className="flex items-center rounded-md border border-borde bg-hondo focus-within:border-oro">
+                <span className="pl-3 text-niebla">S/</span>
+                <input name="monto" required inputMode="decimal" placeholder="20" className="w-full bg-transparent px-2 py-2 focus:outline-none" />
+              </span>
+            </label>
+            <label className="block">
+              <span className="etiqueta">Motivo</span>
+              <input name="motivo" required placeholder="Debe la entrada del sábado" className="campo" />
+            </label>
+            <Enviar className="w-full">Asignar deuda</Enviar>
+          </Formulario>
+          {deudas.length === 0 ? (
+            <Vacio>Nadie debe nada.</Vacio>
+          ) : (
+            <ul className="space-y-3">
+              {deudas.map((d) => (
+                <FilaDeuda key={d.id} d={d}>
+                  <Formulario accion={accionPerdonarDeuda} confirmar="¿Perdonar lo que falta de esta deuda?">
+                    <input type="hidden" name="deuda_id" value={d.id} />
+                    <Enviar variante="boton-sobrio" className="px-3 py-1 text-sm">
+                      Perdonar lo que falta
+                    </Enviar>
+                  </Formulario>
+                </FilaDeuda>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
       <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[1fr_20rem]">
         <section>
           <nav aria-label="Secciones del admin" className="mb-4 flex flex-wrap gap-1 rounded-md bg-hondo/70 p-1">
@@ -182,6 +251,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
           {pestana === "yapes" && <YapesRecibidos />}
           {pestana === "movimientos" && <MovimientosGlobales />}
           {pestana === "retiros" && <RetirosResueltos />}
+          {pestana === "deudas" && <DeudasCerradas />}
           {pestana === "usuarios" && (
             <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.07] bg-losa/60">
               {usuarios.map((u) => (
@@ -284,6 +354,18 @@ function RetirosResueltos() {
           <Estado estado={r.estado} texto={r.estado === "cancelado" ? "Cancelado por el usuario" : undefined} />
           <Dinero centimos={r.monto} moneda={false} className="w-24 text-right text-lg" />
         </li>
+      ))}
+    </ul>
+  );
+}
+
+function DeudasCerradas() {
+  const deudas = listarDeudas("cerradas");
+  if (deudas.length === 0) return <Vacio>Todavía no se ha cerrado ninguna deuda.</Vacio>;
+  return (
+    <ul className="space-y-3">
+      {deudas.map((d) => (
+        <FilaDeuda key={d.id} d={d} />
       ))}
     </ul>
   );

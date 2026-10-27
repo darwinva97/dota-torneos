@@ -68,7 +68,7 @@ assert.equal(saldo(jugadores[1]), 5700);
 const dinero0 = total();
 
 // --- Torneo de 3 equipos de 2 (cuadro de 4 con un bye), reparto 70-30 ---
-const tid = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Copa", descripcion: "", entrada: 1000, garantia: 0, limiteLlegada: "", tamEquipo: 2, maxEquipos: 4, reparto: "70-30", fecha: "" });
+const tid = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Copa", descripcion: "", entrada: 1000, garantia: 0, limiteLlegada: "", tamEquipo: 2, maxEquipos: 4, reparto: "70-30", fecha: "", premioBase: 0, sumaRecaudado: true });
 T.crearEquipo(tid, jugadores[0], "Alfa");
 T.crearEquipo(tid, jugadores[2], "Bravo");
 T.crearEquipo(tid, jugadores[4], "Charlie");
@@ -133,7 +133,7 @@ assert.equal(M.mercado(libreId)!.estado, "anulado");
 assert.equal(total(), dinero0);
 
 // Torneo cancelado devuelve todo.
-const t2 = T.crearTorneo({ organizadorId: jugadores[1], nombre: "Otra", descripcion: "", entrada: 500, garantia: 0, limiteLlegada: "", tamEquipo: 5, maxEquipos: 2, reparto: "ganador", fecha: "" });
+const t2 = T.crearTorneo({ organizadorId: jugadores[1], nombre: "Otra", descripcion: "", entrada: 500, garantia: 0, limiteLlegada: "", tamEquipo: 5, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
 T.crearEquipo(t2, jugadores[1], "Equis");
 T.crearEquipo(t2, jugadores[2], "Ye");
 T.iniciarTorneo(t2, jugadores[1], false);
@@ -141,7 +141,7 @@ T.cancelarTorneo(t2, jugadores[1], false);
 assert.equal(total(), dinero0);
 
 // Garantía de puntualidad: S/ 8 = S/ 2 al pozo + S/ 6 de garantía.
-const tg = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Puntual", descripcion: "", entrada: 200, garantia: 600, limiteLlegada: "9 pm", tamEquipo: 2, maxEquipos: 2, reparto: "ganador", fecha: "" });
+const tg = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Puntual", descripcion: "", entrada: 200, garantia: 600, limiteLlegada: "9 pm", tamEquipo: 2, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
 const s0 = saldo(jugadores[0]);
 T.crearEquipo(tg, jugadores[0], "Puntuales");
 assert.equal(saldo(jugadores[0]), s0 - 800, "se cobra entrada + garantía");
@@ -172,7 +172,7 @@ assert.equal(saldo(jugadores[2]) - antesSorteo[2], 600 + 700, "el campeón cobra
 assert.equal(total(), dinero0);
 
 // Cancelar tras el sorteo devuelve la entrada y la garantía perdida.
-const tc = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Cancelable", descripcion: "", entrada: 200, garantia: 600, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "" });
+const tc = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Cancelable", descripcion: "", entrada: 200, garantia: 600, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
 T.crearEquipo(tc, jugadores[4], "Uno");
 T.crearEquipo(tc, jugadores[5], "Dos");
 T.marcarAsistencia(tc, jugadores[4], "a_tiempo", jugadores[0], false);
@@ -202,6 +202,73 @@ assert.equal(Bi.retirosDe(jugadores[4]).find((r) => r.id === r2.id)!.nota, "Núm
 assert.equal(Bi.resumen(jugadores[4]).retirado, 100);
 // Lo pagado salió del sistema hacia el Yape del jugador.
 assert.equal(total(), dinero0 - 100);
+
+// Premio base que suma lo recaudado: premio = 1000 de base + 2 × 300.
+const so = saldo(jugadores[0]);
+const tb = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Con base", descripcion: "", entrada: 300, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 1000, sumaRecaudado: true });
+assert.equal(saldo(jugadores[0]), so - 1000, "el premio base sale del organizador");
+T.crearEquipo(tb, jugadores[1], "Uno");
+T.crearEquipo(tb, jugadores[2], "Dos");
+T.aumentarPremio(tb, jugadores[0], 500);
+assert.throws(() => T.aumentarPremio(tb, jugadores[1], 500), /Solo quien organiza/);
+assert.equal(T.torneo(tb)!.pozo, 1500 + 600);
+T.iniciarTorneo(tb, jugadores[0], false);
+const s2 = saldo(jugadores[2]);
+const fb = T.partidasDe(tb)[0];
+const eqDos = T.equiposDe(tb).find((e) => e.nombre === "Dos")!;
+T.reportarGanador(fb.id, eqDos.id, jugadores[0], false);
+assert.equal(saldo(jugadores[2]) - s2, 2100, "el campeón cobra base + inscripciones");
+assert.equal(total(), dinero0 - 100);
+
+// Premio fijo: el campeón cobra solo la base; lo recaudado vuelve al organizador.
+const so2 = saldo(jugadores[0]);
+assert.throws(() => T.crearTorneo({ organizadorId: jugadores[0], nombre: "Fijo sin base", descripcion: "", entrada: 300, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: false }), /premio base/);
+const tf = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Fijo", descripcion: "", entrada: 300, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 2000, sumaRecaudado: false });
+T.crearEquipo(tf, jugadores[1], "Uno");
+T.crearEquipo(tf, jugadores[3], "Tres");
+assert.equal(T.torneo(tf)!.pozo, 2000);
+assert.equal(T.torneo(tf)!.recaudado, 600);
+T.iniciarTorneo(tf, jugadores[0], false);
+const s1 = saldo(jugadores[1]);
+const eqUno = T.equiposDe(tf).find((e) => e.nombre === "Uno")!;
+T.reportarGanador(T.partidasDe(tf)[0].id, eqUno.id, jugadores[0], false);
+assert.equal(saldo(jugadores[1]) - s1, 2000, "premio fijo");
+assert.equal(saldo(jugadores[0]) - so2, -2000 + 600, "el organizador recupera lo recaudado");
+assert.equal(total(), dinero0 - 100);
+
+// Cancelar devuelve el premio base al organizador.
+const so3 = saldo(jugadores[0]);
+const tx = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Se cancela", descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 700, sumaRecaudado: true });
+T.cancelarTorneo(tx, jugadores[0], false);
+assert.equal(saldo(jugadores[0]), so3);
+
+// Deudas: se retiene lo que haya y lo que entre después, y bloquea hasta saldarla.
+const deudor = nuevo("moroso", "Moroso Perez");
+R.abrirRecarga(deudor);
+R.ingresarPago({ externoId: "moroso-1", monto: 300, nombre: "Moroso Perez", recibido: Date.now(), fuente: "test" });
+assert.equal(saldo(deudor), 300);
+const sAcreedor = saldo(jugadores[0]);
+Bi.crearDeuda({ deudorId: deudor, acreedorId: jugadores[0], monto: 1000, motivo: "Debe la entrada", creadoPor: jugadores[0] });
+assert.equal(saldo(deudor), 0, "se retiene el saldo que tenía");
+assert.equal(saldo(jugadores[0]) - sAcreedor, 300, "y pasa al acreedor");
+assert.equal(Bi.deudaPendiente(deudor), 700);
+const tdeuda = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Gratis", descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
+assert.throws(() => T.crearEquipo(tdeuda, deudor, "Morosos"), /deuda de S\/ 7.00/);
+assert.throws(() => Bi.pedirRetiro(deudor, 100, "987654321"), /deuda/);
+R.abrirRecarga(deudor);
+R.ingresarPago({ externoId: "moroso-2", monto: 1000, nombre: "Moroso Perez", recibido: Date.now(), fuente: "test" });
+assert.equal(saldo(deudor), 300, "de 10 soles, 7 pagan la deuda");
+assert.equal(Bi.deudaPendiente(deudor), 0);
+assert.equal(Bi.deudasDe(deudor)[0].estado, "pagada");
+T.crearEquipo(tdeuda, deudor, "Morosos");
+// Perdonar libera sin mover dinero.
+Bi.crearDeuda({ deudorId: deudor, acreedorId: jugadores[1], monto: 5000, motivo: "Apuesta de palabra", creadoPor: jugadores[0] });
+assert.equal(saldo(deudor), 0);
+Bi.perdonarDeuda(Bi.listarDeudas("pendiente")[0].id);
+assert.equal(Bi.deudaPendiente(deudor), 0);
+assert.throws(() => Bi.crearDeuda({ deudorId: deudor, acreedorId: deudor, monto: 100, motivo: "Prueba", creadoPor: jugadores[0] }), /sí mismo/);
+// Las deudas mueven dinero entre jugadores, no lo crean ni lo destruyen.
+assert.equal(total(), dinero0 - 100 + 1300);
 
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);
