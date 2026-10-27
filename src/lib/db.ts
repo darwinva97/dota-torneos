@@ -179,6 +179,10 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   ["integrantes", "asistencia", "TEXT"],
   // Garantía que este jugador perdió y pasó al pozo.
   ["integrantes", "garantia_pozo", "INTEGER NOT NULL DEFAULT 0"],
+  // Retiros: el admin anota el número de operación de Yape al pagar, o el
+  // motivo al rechazar.
+  ["retiros", "operacion", "TEXT NOT NULL DEFAULT ''"],
+  ["retiros", "nota", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 function migrar(db: Database.Database) {

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { db } from "../src/lib/db";
 import { mover } from "../src/lib/billetera";
+import * as Bi from "../src/lib/billetera";
 import * as T from "../src/lib/torneos";
 import * as M from "../src/lib/mercados";
 import * as R from "../src/lib/yape/recargas";
@@ -179,6 +180,28 @@ T.marcarAsistencia(tc, jugadores[5], "falto", jugadores[0], false);
 T.iniciarTorneo(tc, jugadores[0], false);
 T.cancelarTorneo(tc, jugadores[0], false);
 assert.equal(total(), dinero0, "cancelar no crea ni pierde dinero");
+
+// Retiros: se descuentan al pedir; cancelar o rechazar devuelve; pagar no.
+const sr = saldo(jugadores[4]);
+Bi.pedirRetiro(jugadores[4], 300, "987 654 321");
+Bi.pedirRetiro(jugadores[4], 200, "987654321");
+Bi.pedirRetiro(jugadores[4], 100, "987654321");
+assert.throws(() => Bi.pedirRetiro(jugadores[4], 100, "987654321"), /3 retiros pendientes/);
+assert.throws(() => Bi.pedirRetiro(jugadores[4], 100, "12345"), /9 dígitos/);
+assert.equal(saldo(jugadores[4]), sr - 600);
+assert.equal(Bi.solicitudesPendientes().retiros, 3);
+const [r3, r2, r1] = Bi.retirosDe(jugadores[4]);
+assert.throws(() => Bi.cancelarRetiro(r1.id, jugadores[5]), /no es tuyo/);
+Bi.cancelarRetiro(r1.id, jugadores[4]);
+Bi.resolverRetiro(r2.id, { pagado: false, motivo: "Número equivocado" });
+Bi.resolverRetiro(r3.id, { pagado: true, operacion: "00123" });
+assert.throws(() => Bi.resolverRetiro(r3.id, { pagado: true, operacion: "x" }), /ya no está pendiente/);
+assert.equal(saldo(jugadores[4]), sr - 100, "solo se descuenta el retiro pagado");
+assert.equal(Bi.solicitudesPendientes().retiros, 0);
+assert.equal(Bi.retirosDe(jugadores[4]).find((r) => r.id === r2.id)!.nota, "Número equivocado");
+assert.equal(Bi.resumen(jugadores[4]).retirado, 100);
+// Lo pagado salió del sistema hacia el Yape del jugador.
+assert.equal(total(), dinero0 - 100);
 
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);

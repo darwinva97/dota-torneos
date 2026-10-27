@@ -1,43 +1,54 @@
 @import "tailwindcss";
 
-/* El Pozo: noche del mapa de Dota. El oro es solo para dinero; verde Radiant y
-   rojo Dire solo para ganar/perder; el morado Yape solo en la recarga. */
+/* El Pozo, HUD de Dota: noche azul con retícula, oro solo para dinero, verde
+   Radiant y rojo Dire solo para ganar/perder, azul maná para lo informativo y
+   morado Yape solo en la recarga. */
 @theme {
-  --color-noche: #1a2130;
-  --color-losa: #232c3c;
-  --color-losa-alta: #2c374a;
-  --color-borde: #3a4659;
-  --color-pergamino: #ece6d6;
-  --color-niebla: #9aa3b2;
-  --color-oro: #e8b54a;
-  --color-oro-oscuro: #b8892b;
-  --color-radiant: #5fa35b;
-  --color-dire: #c4473a;
-  --color-yape: #7b2c8e;
+  --color-noche: #0e1422;
+  --color-hondo: #0a0f1a;
+  --color-losa: #151d2e;
+  --color-losa-alta: #1c2740;
+  --color-borde: #27324a;
+  --color-pergamino: #ebe6d9;
+  --color-niebla: #8a94a8;
+  --color-oro: #f2b632;
+  --color-oro-oscuro: #b3831d;
+  --color-radiant: #45c072;
+  --color-dire: #e2483d;
+  --color-dire-claro: #f08a80;
+  --color-mana: #4f9dff;
+  --color-yape: #8e3aa8;
 
   --font-sans: var(--font-barlow), system-ui, sans-serif;
-  --font-cifra: var(--font-barlow-condensed), var(--font-barlow), sans-serif;
+  --font-cifra: var(--font-chakra), var(--font-barlow), sans-serif;
 }
 
 html {
   color-scheme: dark;
+  background: var(--color-noche);
 }
 
 body {
-  background: var(--color-noche);
   color: var(--color-pergamino);
   font-family: var(--font-sans);
   font-size: 1.0625rem;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  /* Resplandores de oro y Dire arriba, y una retícula muy tenue de minimapa. */
+  background:
+    radial-gradient(1100px 520px at 0% -10%, rgb(242 182 50 / 0.09), transparent 60%),
+    radial-gradient(900px 480px at 100% 0%, rgb(226 72 61 / 0.08), transparent 60%),
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.018) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 0.018) 0 1px, transparent 1px 40px),
+    var(--color-noche);
+  background-attachment: fixed;
 }
 
-/* Cifras de dinero: el contador de oro. Tabulares para que no bailen. */
+/* Cifras de dinero: contador de oro, tabulares para que no bailen. */
 .cifra {
   font-family: var(--font-cifra);
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
 h1,
@@ -45,36 +56,45 @@ h2,
 h3 {
   font-family: var(--font-cifra);
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.005em;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
   text-wrap: balance;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-oro);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+::selection {
+  background: rgb(242 182 50 / 0.35);
 }
 
 @layer components {
-  .boton {
-    @apply inline-flex items-center justify-center gap-2 rounded-md bg-oro px-4 py-2 font-semibold text-noche
-      transition-[background-color,transform] duration-150 hover:bg-[#f0c463] active:scale-[0.97]
+  /* Botones con esquinas biseladas, como los del cliente de Dota. */
+  .boton,
+  .boton-sobrio,
+  .boton-peligro {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 font-semibold
+      transition-[filter,background-color,transform] duration-150 active:scale-[0.97]
       disabled:cursor-not-allowed disabled:opacity-50;
+    font-family: var(--font-cifra);
+    clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+  }
+  .boton {
+    @apply text-hondo hover:brightness-110;
+    background: linear-gradient(180deg, #f8cb57, #e3a21c);
   }
   .boton-sobrio {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-borde px-4 py-2 font-medium
-      text-pergamino transition-[background-color,transform] duration-150 hover:bg-losa-alta active:scale-[0.97]
-      disabled:cursor-not-allowed disabled:opacity-50;
+    @apply bg-white/[0.07] text-pergamino hover:bg-white/[0.13];
   }
   .boton-peligro {
-    @apply inline-flex items-center justify-center gap-2 rounded-md border border-dire/60 px-4 py-2 font-medium
-      text-[#e88a7f] transition-[background-color,transform] duration-150 hover:bg-dire/15 active:scale-[0.97]
-      disabled:opacity-50;
+    @apply bg-dire/15 text-dire-claro hover:bg-dire/25;
   }
+
   .campo {
-    @apply w-full rounded-md border border-borde bg-noche px-3 py-2 text-pergamino placeholder:text-niebla/60
-      focus:border-oro focus:outline-none;
+    @apply w-full rounded-md border border-borde bg-hondo px-3 py-2 text-pergamino transition-shadow
+      placeholder:text-niebla/60 focus:border-oro focus:shadow-[0_0_0_3px_rgb(242_182_50/0.15)] focus:outline-none;
   }
   .etiqueta {
     @apply mb-1 block text-[0.95rem] font-medium text-pergamino;
@@ -82,8 +102,45 @@ h3 {
   .ayuda {
     @apply mt-1 block text-sm text-niebla;
   }
+
   .panel {
-    @apply rounded-lg border border-borde bg-losa;
+    @apply rounded-lg border border-white/[0.07];
+    background: linear-gradient(180deg, rgb(28 39 64 / 0.8), rgb(21 29 46 / 0.85));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 12px 32px -18px rgb(0 0 0 / 0.8);
+  }
+
+  /* Panel destacado: escuadras doradas en dos esquinas, como un marco de HUD.
+     Solo para lo importante (saldo, pozo), no en cada tarjeta. */
+  .hud {
+    @apply relative;
+  }
+  .hud::before,
+  .hud::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: rgb(242 182 50 / 0.7);
+    pointer-events: none;
+  }
+  .hud::before {
+    top: -1px;
+    left: -1px;
+    border-top: 2px solid;
+    border-left: 2px solid;
+    border-top-left-radius: 8px;
+  }
+  .hud::after {
+    right: -1px;
+    bottom: -1px;
+    border-right: 2px solid;
+    border-bottom: 2px solid;
+    border-bottom-right-radius: 8px;
+  }
+
+  /* Pastilla de estado o etiqueta pequeña. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-sm;
   }
 }
 

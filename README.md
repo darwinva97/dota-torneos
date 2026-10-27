@@ -10,7 +10,12 @@ https://apuestas.bezenti.com.
 - **Apuestas aparte**: pozo común (parimutuel). Pueden ser libres (las resuelve quien
   las crea) o sobre una partida o el campeón de un torneo (se resuelven solas).
 - **Billetera**: todo el dinero va en céntimos y cada cambio deja un movimiento.
-  Retiros: se descuentan al pedirlos y el admin los paga por Yape a mano.
+  Historial con filtros (Yape, torneos, apuestas) y resumen de lo recargado,
+  retirado, ganado en premios y el balance de las apuestas.
+- **Retiros**: el usuario pide un retiro a su Yape y se le descuenta al momento;
+  la solicitud le llega al admin (contador en el menú y la campana). El admin lo
+  yapea y anota el número de operación, o lo rechaza con un motivo y el monto
+  vuelve al saldo. Mientras esté pendiente, el usuario puede cancelarlo.
 
 El primer usuario que se registra es admin. Para nombrar a otro:
 `npx tsx --conditions=react-server scripts/hacer-admin.ts <usuario>`.

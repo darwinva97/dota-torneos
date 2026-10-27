@@ -1,170 +1,165 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { ArrowDownToLine, ArrowUpFromLine, Clock } from "lucide-react";
 import { exigirUsuario } from "@/lib/sesion";
-import { movimientos, retirosDe, type TipoMovimiento } from "@/lib/billetera";
+import { GRUPOS, movimientos, resumen, retirosDe, type Grupo } from "@/lib/billetera";
 import { recargaAbiertaDe, recargasDe } from "@/lib/yape/recargas";
 import { soles } from "@/lib/dinero";
-import { Formulario, Enviar } from "@/components/formulario";
-import { Cargando, Dinero, Vacio } from "@/components/ui";
-import { accionAbrirRecarga, accionRetiro } from "../acciones/billetera";
+import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/components/ui";
+import { ListaMovimientos } from "@/components/movimientos";
+import { accionAbrirRecarga } from "../acciones/billetera";
 
 export const metadata: Metadata = { title: "Billetera" };
 
-const TIPOS: Record<TipoMovimiento, string> = {
-  recarga: "Recarga",
-  retiro: "Retiro",
-  retiro_devuelto: "Retiro devuelto",
-  inscripcion: "Entrada a torneo",
-  inscripcion_devuelta: "Entrada devuelta",
-  garantia: "Garantía de puntualidad",
-  garantia_devuelta: "Garantía devuelta",
-  premio: "Premio de torneo",
-  apuesta: "Apuesta",
-  apuesta_ganada: "Apuesta ganada",
-  apuesta_devuelta: "Apuesta devuelta",
-};
+const FILTROS: { valor?: Grupo; texto: string }[] = [
+  { texto: "Todo" },
+  { valor: "yape", texto: "Yape" },
+  { valor: "torneos", texto: "Torneos" },
+  { valor: "apuestas", texto: "Apuestas" },
+];
 
-const ESTADO_RECARGA: Record<string, string> = {
-  escuchando: "Esperando tu Yape",
-  acreditada: "Acreditada",
-  revision: "En revisión",
-  vencida: "Venció sin pago",
-  cancelada: "Cancelada",
-};
-
-export default function Billetera() {
+export default function Billetera({ searchParams }: PageProps<"/billetera">) {
   return (
-    <Suspense fallback={<Cargando />}>
-      <Contenido />
-    </Suspense>
+    <>
+      <Titulo>Billetera</Titulo>
+      <Suspense fallback={<Cargando />}>
+        <Contenido searchParams={searchParams} />
+      </Suspense>
+    </>
   );
 }
 
-async function Contenido() {
+async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera">["searchParams"] }) {
   const u = await exigirUsuario();
-  const movs = movimientos(u.id);
+  const { ver } = await searchParams;
+  const grupo = typeof ver === "string" && ver in GRUPOS ? (ver as Grupo) : undefined;
+  const movs = movimientos(u.id, { grupo });
+  const r = resumen(u.id);
   const abierta = recargaAbiertaDe(u.id);
-  const recargas = recargasDe(u.id).filter((r) => r.estado !== "escuchando");
-  const retiros = retirosDe(u.id);
+  const recargas = recargasDe(u.id).filter((x) => x.estado !== "escuchando").slice(0, 5);
+  const retirosPend = retirosDe(u.id).filter((x) => x.estado === "pendiente");
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1fr_22rem]">
-      <div className="space-y-10">
-        <section>
-          <p className="text-niebla">Tu saldo</p>
-          <Dinero centimos={u.saldo} className="text-7xl" />
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-3xl">Movimientos</h2>
-          {movs.length === 0 ? (
-            <Vacio>Aún no hay movimientos. Tu primera recarga aparecerá aquí.</Vacio>
-          ) : (
-            <table className="w-full text-left">
-              <thead className="text-sm text-niebla">
-                <tr>
-                  <th className="py-2 font-normal">Fecha</th>
-                  <th className="py-2 font-normal">Detalle</th>
-                  <th className="py-2 text-right font-normal">Monto</th>
-                  <th className="hidden py-2 pl-6 text-right font-normal sm:table-cell">Saldo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-borde">
-                {movs.map((m) => (
-                  <tr key={m.id}>
-                    <td className="py-2 pr-3 text-sm whitespace-nowrap text-niebla">{fecha(m.creado)}</td>
-                    <td className="py-2 pr-3">
-                      <span className="block">{TIPOS[m.tipo]}</span>
-                      <span className="block text-sm text-niebla">{m.detalle}</span>
-                    </td>
-                    <td className="py-2 pl-3 text-right">
-                      <Dinero centimos={m.monto} conSigno />
-                    </td>
-                    <td className="hidden py-2 pl-6 text-right text-niebla sm:table-cell">{soles(m.saldo_despues)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-      </div>
-
-      <aside className="space-y-6">
-        <section className="rounded-lg border border-yape/70 bg-yape/15 p-5">
-          <h2 className="text-2xl">Recargar con Yape</h2>
-          <p className="mt-1 mb-4 text-sm text-niebla">
-            Al pulsar tienes 3 minutos para yapear al número del pozo y subir la captura. En cuanto llega el Yape, se suma a tu saldo.
-          </p>
-          {abierta ? (
-            <Link href={`/billetera/recargar?r=${abierta.id}`} className="boton w-full">
-              Seguir con tu recarga
+    <div className="space-y-10">
+      <section className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+        <div className="panel hud flex flex-col justify-between gap-6 p-6">
+          <div>
+            <p className="text-niebla">Tu saldo</p>
+            <Dinero centimos={u.saldo} className="text-6xl sm:text-7xl" />
+            {r.enRetiro > 0 && (
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-niebla">
+                <Clock className="size-4" aria-hidden /> {soles(r.enRetiro)} esperando que el admin te los yapee
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {abierta ? (
+              <Link href={`/billetera/recargar?r=${abierta.id}`} className="boton">
+                <ArrowDownToLine className="size-5" aria-hidden /> Seguir con tu recarga
+              </Link>
+            ) : (
+              <form action={accionAbrirRecarga}>
+                <button className="boton">
+                  <ArrowDownToLine className="size-5" aria-hidden /> Recargar con Yape
+                </button>
+              </form>
+            )}
+            <Link href="/billetera/retirar" className="boton-sobrio">
+              <ArrowUpFromLine className="size-5" aria-hidden /> Retirar
             </Link>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Stat etiqueta="Recargaste">{soles(r.recargado)}</Stat>
+          <Stat etiqueta="Retiraste">{soles(r.retirado)}</Stat>
+          <Stat etiqueta="Premios de torneos" tono={r.premios > 0 ? "text-oro" : ""}>
+            {soles(r.premios)}
+          </Stat>
+          <Stat
+            etiqueta="Balance en apuestas"
+            tono={r.netoApuestas > 0 ? "text-radiant" : r.netoApuestas < 0 ? "text-dire-claro" : ""}
+          >
+            {r.netoApuestas > 0 ? "+" : ""}
+            {soles(r.netoApuestas)}
+          </Stat>
+        </div>
+      </section>
+
+      {retirosPend.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-2xl">Solicitudes en curso</h2>
+          <ul className="space-y-2">
+            {retirosPend.map((x) => (
+              <li key={x.id}>
+                <Link
+                  href="/billetera/retirar"
+                  className="panel flex flex-wrap items-center gap-3 px-4 py-3 hover:border-oro/30"
+                >
+                  <ArrowUpFromLine className="size-5 text-oro" aria-hidden />
+                  <span>
+                    Retiro de <span className="cifra">{soles(x.monto)}</span> al {x.destino}
+                  </span>
+                  <Estado estado="pendiente" />
+                  <span className="ml-auto text-sm text-niebla">pedido el {fecha(x.creado)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[1fr_20rem]">
+        <section>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-2xl">Historial</h2>
+            <nav aria-label="Filtrar historial" className="flex gap-1 rounded-md bg-hondo/70 p-1">
+              {FILTROS.map((f) => {
+                const activo = f.valor === grupo;
+                return (
+                  <Link
+                    key={f.texto}
+                    href={f.valor ? `/billetera?ver=${f.valor}` : "/billetera"}
+                    aria-current={activo ? "page" : undefined}
+                    scroll={false}
+                    className={`rounded px-3 py-1 text-sm font-medium transition-colors ${
+                      activo ? "bg-oro text-hondo" : "text-niebla hover:text-pergamino"
+                    }`}
+                  >
+                    {f.texto}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+          {movs.length === 0 ? (
+            <Vacio>
+              {grupo ? "No hay movimientos de este tipo todavía." : "Aún no hay movimientos. Tu primera recarga aparecerá aquí."}
+            </Vacio>
           ) : (
-            <form action={accionAbrirRecarga}>
-              <button className="boton w-full">Recargar</button>
-            </form>
+            <ListaMovimientos movimientos={movs} />
           )}
         </section>
 
-        <Formulario accion={accionRetiro} className="panel space-y-4 p-5">
-          <h2 className="text-2xl">Retirar</h2>
-          <label className="block">
-            <span className="etiqueta">Monto</span>
-            <div className="flex items-center rounded-md border border-borde bg-noche focus-within:border-oro">
-              <span className="pl-3 text-niebla">S/</span>
-              <input name="monto" required inputMode="decimal" className="w-full bg-transparent px-2 py-2 focus:outline-none" />
-            </div>
-          </label>
-          <label className="block">
-            <span className="etiqueta">Tu celular de Yape</span>
-            <input name="destino" required inputMode="numeric" placeholder="987654321" className="campo" />
-          </label>
-          <Enviar variante="boton-sobrio" className="w-full">
-            Pedir retiro
-          </Enviar>
-          <p className="ayuda">Se descuenta ahora y el admin te lo yapea. Si lo rechaza, vuelve a tu saldo.</p>
-        </Formulario>
-
-        {(recargas.length > 0 || retiros.length > 0) && (
-          <section className="panel p-5">
-            <h2 className="mb-3 text-2xl">Solicitudes</h2>
-            <ul className="space-y-2 text-sm">
-              {recargas.map((r) => (
-                <li key={`r${r.id}`} className="flex justify-between gap-3">
+        <aside>
+          <h2 className="mb-4 text-2xl">Recargas recientes</h2>
+          {recargas.length === 0 ? (
+            <p className="text-niebla">Todavía no has recargado.</p>
+          ) : (
+            <ul className="space-y-2">
+              {recargas.map((x) => (
+                <li key={x.id} className="panel flex items-center justify-between gap-3 px-4 py-3">
                   <span>
-                    Recarga {r.monto ? soles(r.monto) : ""}
-                    <span className="block text-niebla">{fecha(r.creado)}</span>
+                    <span className="cifra block">{x.monto ? soles(x.monto) : "Sin monto"}</span>
+                    <span className="text-sm text-niebla">{fecha(x.creado)}</span>
                   </span>
-                  <span className={r.estado === "acreditada" ? "text-radiant" : "text-niebla"}>{ESTADO_RECARGA[r.estado]}</span>
-                </li>
-              ))}
-              {retiros.map((r) => (
-                <li key={`w${r.id}`} className="flex justify-between gap-3">
-                  <span>
-                    Retiro {soles(r.monto)}
-                    <span className="block text-niebla">{fecha(r.creado)}</span>
-                  </span>
-                  <span className={r.estado === "pagado" ? "text-radiant" : "text-niebla"}>
-                    {{ pendiente: "Pendiente", pagado: "Pagado", rechazado: "Rechazado" }[r.estado]}
-                  </span>
+                  <Estado estado={x.estado} />
                 </li>
               ))}
             </ul>
-          </section>
-        )}
-      </aside>
+          )}
+        </aside>
+      </div>
     </div>
   );
-}
-
-// SQLite guarda UTC sin zona; lo mostramos en hora de Lima.
-function fecha(utc: string) {
-  return new Date(`${utc.replace(" ", "T")}Z`).toLocaleString("es-PE", {
-    timeZone: "America/Lima",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

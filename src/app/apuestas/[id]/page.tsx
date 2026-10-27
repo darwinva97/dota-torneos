@@ -30,7 +30,7 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
   const viva = m.estado === "abierto" || m.estado === "cerrado";
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1fr_22rem]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-8">
         <header>
           <div className="mb-2 flex flex-wrap items-center gap-3">

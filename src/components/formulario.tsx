@@ -32,7 +32,7 @@ export function Formulario({
     >
       {children}
       {estado?.error && (
-        <p role="alert" className="mt-2 basis-full text-sm text-[#e88a7f]">
+        <p role="alert" className="mt-2 basis-full text-sm text-dire-claro">
           {estado.error}
         </p>
       )}

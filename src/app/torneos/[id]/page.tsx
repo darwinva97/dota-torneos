@@ -314,7 +314,7 @@ function textoInscripcion(t: Torneo) {
 
 function EstadoAsistencia({ asistencia }: { asistencia: Equipo["integrantes"][number]["asistencia"] }) {
   if (asistencia === "a_tiempo") return <span className="text-sm text-radiant">Llegó a tiempo</span>;
-  if (asistencia === "falto") return <span className="text-sm text-[#e88a7f]">Faltó</span>;
+  if (asistencia === "falto") return <span className="text-sm text-dire-claro">Faltó</span>;
   return <span className="text-sm text-niebla">Asistencia sin marcar</span>;
 }
 
@@ -344,7 +344,7 @@ function MarcarAsistencia({
       <input type="hidden" name="jugador_id" value={jugadorId} />
       <span className="flex divide-x divide-borde overflow-hidden rounded-md border border-borde">
         {boton("a_tiempo", "A tiempo", "bg-radiant/20 text-radiant")}
-        {boton("falto", "Faltó", "bg-dire/20 text-[#e88a7f]")}
+        {boton("falto", "Faltó", "bg-dire/20 text-dire-claro")}
       </span>
     </Formulario>
   );

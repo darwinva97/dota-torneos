@@ -119,7 +119,7 @@ export function Escucha({
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-2xl">Yapea al pozo</h2>
             {restante !== null && (
-              <p aria-live="off" className={restante > 30 ? "text-pergamino" : "text-[#e88a7f]"}>
+              <p aria-live="off" className={restante > 30 ? "text-pergamino" : "text-dire-claro"}>
                 {restante > 0 ? (
                   <>
                     te quedan{" "}
@@ -171,7 +171,7 @@ export function Escucha({
             )}
           </div>
           {captura.error && (
-            <p role="alert" className="mt-2 text-sm text-[#e88a7f]">
+            <p role="alert" className="mt-2 text-sm text-dire-claro">
               {captura.error}
             </p>
           )}
@@ -223,7 +223,7 @@ function FilaPago({ p, recargaId, conCaptura }: { p: Pago; recargaId: number; co
           Es mío
         </button>
       </form>
-      {estado?.error && <p className="basis-full text-sm text-[#e88a7f]">{estado.error}</p>}
+      {estado?.error && <p className="basis-full text-sm text-dire-claro">{estado.error}</p>}
     </li>
   );
 }

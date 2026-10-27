@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
 import { Formulario, Enviar } from "@/components/formulario";
 import { Cargando } from "@/components/ui";
-import { accionPerfil } from "../acciones/cuenta";
+import { accionPerfil, accionSalir } from "../acciones/cuenta";
 
 export const metadata: Metadata = { title: "Perfil" };
 
@@ -14,6 +14,7 @@ export default function Perfil() {
       <Suspense fallback={<Cargando />}>
         <Datos />
       </Suspense>
+      <CerrarSesion />
     </div>
   );
 }
@@ -40,5 +41,13 @@ async function Datos() {
       </label>
       <Enviar>Guardar perfil</Enviar>
     </Formulario>
+  );
+}
+
+function CerrarSesion() {
+  return (
+    <form action={accionSalir} className="mt-10 border-t border-white/10 pt-6">
+      <button className="boton-peligro">Cerrar sesión</button>
+    </form>
   );
 }

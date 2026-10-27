@@ -5,7 +5,7 @@ import { refresh } from "next/cache";
 import { exigirAdmin, exigirUsuario } from "@/lib/sesion";
 import { aEstado, exigir, type Estado } from "@/lib/errores";
 import { leerSoles } from "@/lib/dinero";
-import { pedirRetiro, resolverRetiro } from "@/lib/billetera";
+import { cancelarRetiro, pedirRetiro, resolverRetiro } from "@/lib/billetera";
 import * as R from "@/lib/yape/recargas";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
@@ -42,7 +42,18 @@ export async function accionRetiro(_: Estado, fd: FormData): Promise<Estado> {
     return aEstado(e);
   }
   refresh();
-  return { ok: "Retiro pedido. El admin te lo yapea y lo marca como pagado." };
+  return { ok: "Solicitud enviada al admin. Te avisamos aquí cuando la pague." };
+}
+
+export async function accionCancelarRetiro(_: Estado, fd: FormData): Promise<Estado> {
+  const u = await exigirUsuario();
+  try {
+    cancelarRetiro(num(fd, "retiro_id"), u.id);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Retiro cancelado. El monto volvió a tu saldo." };
 }
 
 // --- Admin ---
@@ -66,9 +77,18 @@ export async function accionRechazarRecarga(_: Estado, fd: FormData) {
   return comoAdmin(() => R.rechazarRecarga(num(fd, "recarga_id"), String(fd.get("nota") ?? "")), "Recarga rechazada.");
 }
 
-export async function accionResolverRetiro(_: Estado, fd: FormData) {
-  const pagado = fd.get("pagado") === "1";
-  return comoAdmin(() => resolverRetiro(num(fd, "retiro_id"), pagado), pagado ? "Retiro marcado como pagado." : "Retiro rechazado y devuelto.");
+export async function accionPagarRetiro(_: Estado, fd: FormData) {
+  return comoAdmin(
+    () => resolverRetiro(num(fd, "retiro_id"), { pagado: true, operacion: String(fd.get("operacion") ?? "") }),
+    "Retiro marcado como pagado.",
+  );
+}
+
+export async function accionRechazarRetiro(_: Estado, fd: FormData) {
+  return comoAdmin(
+    () => resolverRetiro(num(fd, "retiro_id"), { pagado: false, motivo: String(fd.get("motivo") ?? "") }),
+    "Retiro rechazado. El monto volvió al saldo del usuario.",
+  );
 }
 
 // Simula una notificación del observador. Solo existe con YAPE_SIMULADOR=1,
