@@ -10,7 +10,7 @@ import {
   retirosPendientes,
   retirosResueltos,
 } from "@/lib/billetera";
-import { recargasEnRevision, ultimosPagos } from "@/lib/yape/recargas";
+import { colaActual, recargasEnRevision, ultimosPagos } from "@/lib/yape/recargas";
 import { soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
 import { Copiar } from "@/components/copiar";
@@ -276,6 +276,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
                 ? "Recibiendo los Yapes que reenvía yapi."
                 : "Falta configurar la integración de yapi."}
             </p>
+            <ColaRecargas />
             {simulador && (
               <Formulario accion={accionSimularPago} className="mt-4 space-y-3 border-t border-white/10 pt-4">
                 <h3 className="text-lg">Simular un Yape</h3>
@@ -368,5 +369,30 @@ function DeudasCerradas() {
         <FilaDeuda key={d.id} d={d} />
       ))}
     </ul>
+  );
+}
+
+function ColaRecargas() {
+  const cola = colaActual();
+  return (
+    <div className="mt-4 border-t border-white/10 pt-4">
+      <h3 className="text-lg">Cola de recargas</h3>
+      {cola.length === 0 ? (
+        <p className="text-sm text-niebla">Nadie está recargando ahora.</p>
+      ) : (
+        <ol className="mt-2 space-y-1 text-sm">
+          {cola.map((c, i) => (
+            <li key={c.id} className="flex justify-between gap-2">
+              <span>
+                {i + 1}. {c.usuario}
+              </span>
+              <span className={c.estado === "escuchando" ? "text-radiant" : "text-niebla"}>
+                {c.estado === "escuchando" ? "con turno" : "esperando"}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }

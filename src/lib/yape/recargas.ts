@@ -5,22 +5,39 @@ import { mover } from "../billetera";
 import { soles } from "../dinero";
 import { emitir } from "./bus";
 
-// Flujo de recarga:
-//  1. El usuario pulsa «Recargar»: se abre una recarga en estado «escuchando».
-//  2. Tiene 2 minutos para yapear al número del pozo. Solo cuentan los Yapes
-//     que llegan después de pulsar.
+// Flujo de recarga, con un solo turno a la vez:
+//  1. El usuario pulsa «Recargar» y entra en la cola («en_cola»).
+//  2. Cuando nadie más tiene el turno, empieza el suyo («escuchando»): 1 minuto
+//     y medio en el que es el único que puede recargar. Así cualquier Yape que
+//     llegue en ese rato es casi seguro suyo.
 //  3. El observador (yapi, que lee las notificaciones de Yape en el celular del
 //     pozo) reporta cada pago con monto y nombre → ingresarPago.
 //  4. Se acredita solo si el nombre del pago coincide con el «nombre en Yape» de
-//     quien está recargando (ver puntuarNombre). Si no, el usuario puede decir
+//     quien tiene el turno (ver elegirCandidata). Si no, el usuario puede decir
 //     «es mío» y un admin lo confirma.
+//  5. El turno termina al acreditarse, al reclamar, al cancelar o al vencer, y
+//     empieza el del siguiente en la cola.
+//
+// Penalización: si a alguien se le venció el turno sin yapear (o lo canceló) y
+// vuelve a intentarlo en los 10 minutos siguientes, su turno no puede empezar
+// hasta pasado 1 minuto. Si en ese minuto llega otra persona, va primero.
 
-export const VENTANA_MS = 2 * 60 * 1000;
-// Un Yape hecho en el segundo 2:59 tarda unos segundos en notificarse y en
-// pasar por yapi; lo aceptamos si llega dentro de esta gracia tras el plazo.
-const GRACIA_MS = 30 * 1000;
+export const TURNO_MS = 90 * 1000;
+// Un Yape hecho en el último segundo tarda unos segundos en notificarse y en
+// pasar por yapi; el turno sigue reservado durante esta gracia tras el plazo.
+const GRACIA_MS = 20 * 1000;
+export const PENALIZACION_MS = 60 * 1000;
+const MEMORIA_FALLOS_MS = 10 * 60 * 1000;
+// Quien cierra la pantalla mientras espera en la cola pierde el sitio.
+const ABANDONO_COLA_MS = 2 * 60 * 1000;
 
-export type EstadoRecarga = "escuchando" | "acreditada" | "revision" | "vencida" | "cancelada";
+// Reloj sustituible para las pruebas.
+let reloj = () => Date.now();
+export function fijarRelojParaPruebas(fn: () => number) {
+  reloj = fn;
+}
+
+export type EstadoRecarga = "en_cola" | "escuchando" | "acreditada" | "revision" | "vencida" | "cancelada";
 
 export type Recarga = {
   id: number;
@@ -29,8 +46,12 @@ export type Recarga = {
   comprobante: string | null;
   pago_id: number | null;
   monto: number | null;
+  /** Inicio y fin del turno; 0 mientras espera en la cola. */
   inicio: number;
   expira: number;
+  disponible_desde: number;
+  fin: number;
+  visto: number;
   nota: string;
   creado: string;
 };
@@ -96,26 +117,29 @@ export function nombreCoincide(registrado: string, delPago: string) {
 // --- Lectura ---
 
 export function recarga(id: number) {
-  vencerViejas();
+  avanzarCola();
   return db().prepare("SELECT * FROM recargas WHERE id = ?").get(id) as Recarga | undefined;
 }
 
 export function recargaAbiertaDe(usuarioId: number) {
-  vencerViejas();
+  avanzarCola();
   return db()
-    .prepare("SELECT * FROM recargas WHERE usuario_id = ? AND estado = 'escuchando' ORDER BY id DESC LIMIT 1")
+    .prepare(
+      "SELECT * FROM recargas WHERE usuario_id = ? AND estado IN ('en_cola', 'escuchando') ORDER BY id DESC LIMIT 1",
+    )
     .get(usuarioId) as Recarga | undefined;
 }
 
 export function recargasDe(usuarioId: number) {
-  vencerViejas();
+  avanzarCola();
   return db()
     .prepare("SELECT * FROM recargas WHERE usuario_id = ? ORDER BY id DESC LIMIT 10")
     .all(usuarioId) as Recarga[];
 }
 
-// Pagos sin dueño que llegaron dentro de la ventana de una recarga.
+// Pagos sin dueño que llegaron dentro del turno de una recarga.
 export function pagosLibresDeVentana(r: Recarga) {
+  if (!r.inicio) return [];
   return db()
     .prepare(
       "SELECT * FROM pagos_yape WHERE estado = 'libre' AND recibido BETWEEN ? AND ? ORDER BY recibido DESC LIMIT 10",
@@ -123,32 +147,149 @@ export function pagosLibresDeVentana(r: Recarga) {
     .all(r.inicio, r.expira + GRACIA_MS) as PagoYape[];
 }
 
-// Pagos sin dueño recientes, para enseñarlos a quien está escuchando.
-export function pagosLibresRecientes(desde: number) {
-  return db()
-    .prepare("SELECT * FROM pagos_yape WHERE estado = 'libre' AND recibido >= ? ORDER BY recibido DESC LIMIT 10")
-    .all(desde) as PagoYape[];
+// Lo que ve la pantalla de recarga: su estado, el turno y su sitio en la cola.
+export type VistaRecarga = {
+  estado: EstadoRecarga;
+  monto: number | null;
+  nota: string;
+  inicio: number;
+  expira: number;
+  /** Personas antes en la cola, contando a quien tiene el turno. */
+  delante: number;
+  /** Hasta cuándo dura la penalización (0 si no tiene). */
+  disponibleDesde: number;
+  /** Estimación de cuándo empieza su turno, en el peor caso. */
+  empiezaHacia: number;
+};
+
+export function vistaRecarga(id: number): VistaRecarga | null {
+  const r = recarga(id);
+  if (!r) return null;
+  let delante = 0;
+  let empiezaHacia = 0;
+  if (r.estado === "en_cola") {
+    const activo = turnoActivo();
+    const antes = db()
+      .prepare("SELECT COUNT(*) AS n FROM recargas WHERE estado = 'en_cola' AND id < ?")
+      .get(r.id) as { n: number };
+    delante = antes.n + (activo ? 1 : 0);
+    const ahora = reloj();
+    const finActivo = activo ? activo.expira + GRACIA_MS : ahora;
+    empiezaHacia = Math.max(finActivo + antes.n * (TURNO_MS + GRACIA_MS), r.disponible_desde, ahora);
+  }
+  return {
+    estado: r.estado,
+    monto: r.monto,
+    nota: r.nota,
+    inicio: r.inicio,
+    expira: r.expira,
+    delante,
+    disponibleDesde: r.disponible_desde > reloj() ? r.disponible_desde : 0,
+    empiezaHacia,
+  };
 }
 
-function vencerViejas() {
-  db()
-    .prepare("UPDATE recargas SET estado = 'vencida' WHERE estado = 'escuchando' AND expira < ?")
-    .run(Date.now() - GRACIA_MS);
+export function colaActual() {
+  avanzarCola();
+  return db()
+    .prepare(
+      `SELECT r.id, r.estado, r.expira, r.disponible_desde, u.usuario FROM recargas r
+       JOIN usuarios u ON u.id = r.usuario_id
+       WHERE r.estado IN ('escuchando', 'en_cola') ORDER BY r.estado = 'en_cola', r.id`,
+    )
+    .all() as { id: number; estado: string; expira: number; disponible_desde: number; usuario: string }[];
+}
+
+function turnoActivo() {
+  return db().prepare("SELECT * FROM recargas WHERE estado = 'escuchando' LIMIT 1").get() as Recarga | undefined;
 }
 
 function avisar(r: Recarga) {
   emitir({ tipo: "recarga", recargaId: r.id, estado: r.estado, monto: r.monto, nota: r.nota });
 }
 
+function porId(id: number) {
+  return db().prepare("SELECT * FROM recargas WHERE id = ?").get(id) as Recarga;
+}
+
+// Vence el turno que se pasó de tiempo, saca de la cola a quien la abandonó y,
+// si el turno está libre, se lo da al siguiente. Se llama en cada lectura y
+// cada segundo desde el reloj de la cola (arrancarRelojCola).
+export function avanzarCola() {
+  transaccion(() => {
+    const ahora = reloj();
+    const vencidas = db()
+      .prepare("SELECT id, expira FROM recargas WHERE estado = 'escuchando' AND expira + ? < ?")
+      .all(GRACIA_MS, ahora) as { id: number; expira: number }[];
+    for (const { id, expira } of vencidas) {
+      // Fin real del turno, no el momento en que se comprobó.
+      db().prepare("UPDATE recargas SET estado = 'vencida', fin = ? WHERE id = ?").run(expira + GRACIA_MS, id);
+      avisar(porId(id));
+    }
+    const abandonadas = db()
+      .prepare("SELECT id FROM recargas WHERE estado = 'en_cola' AND visto + ? < ?")
+      .all(ABANDONO_COLA_MS, ahora) as { id: number }[];
+    for (const { id } of abandonadas) {
+      db()
+        .prepare("UPDATE recargas SET estado = 'cancelada', fin = ?, nota = ? WHERE id = ?")
+        .run(ahora, "Saliste de la pantalla mientras esperabas en la cola", id);
+      avisar(porId(id));
+    }
+    if (turnoActivo()) return;
+    // El primero que ya puede empezar; quien está penalizado espera aunque
+    // haya llegado antes.
+    const siguiente = db()
+      .prepare("SELECT id FROM recargas WHERE estado = 'en_cola' AND disponible_desde <= ? ORDER BY id LIMIT 1")
+      .get(ahora) as { id: number } | undefined;
+    if (!siguiente) return;
+    db()
+      .prepare("UPDATE recargas SET estado = 'escuchando', inicio = ?, expira = ? WHERE id = ?")
+      .run(ahora, ahora + TURNO_MS, siguiente.id);
+    avisar(porId(siguiente.id));
+  });
+}
+
+// Pantalla abierta: evita que se le saque de la cola por abandono.
+export function marcarVisto(id: number) {
+  db().prepare("UPDATE recargas SET visto = ? WHERE id = ?").run(reloj(), id);
+}
+
+// Reloj en segundo plano: avanza la cola aunque nadie haga peticiones.
+const g = globalThis as unknown as { __pozoRelojCola?: NodeJS.Timeout };
+export function arrancarRelojCola() {
+  g.__pozoRelojCola ??= setInterval(() => {
+    try {
+      avanzarCola();
+    } catch (e) {
+      console.error("[cola] no se pudo avanzar:", e);
+    }
+  }, 1000);
+}
+
 // --- Acciones del usuario ---
+
+// Si falló su último turno hace menos de 10 minutos, espera 1 minuto.
+function penalizacion(usuarioId: number) {
+  const ultima = db()
+    .prepare(
+      `SELECT estado, fin FROM recargas WHERE usuario_id = ? AND inicio > 0
+       AND estado IN ('acreditada', 'revision', 'vencida', 'cancelada') ORDER BY id DESC LIMIT 1`,
+    )
+    .get(usuarioId) as { estado: string; fin: number } | undefined;
+  const fallo = ultima && (ultima.estado === "vencida" || ultima.estado === "cancelada");
+  return fallo && reloj() - ultima.fin < MEMORIA_FALLOS_MS ? PENALIZACION_MS : 0;
+}
 
 export function abrirRecarga(usuarioId: number) {
   const abierta = recargaAbiertaDe(usuarioId);
   if (abierta) return abierta.id;
-  const ahora = Date.now();
+  const ahora = reloj();
   const r = db()
-    .prepare("INSERT INTO recargas (usuario_id, inicio, expira) VALUES (?, ?, ?)")
-    .run(usuarioId, ahora, ahora + VENTANA_MS);
+    .prepare(
+      "INSERT INTO recargas (usuario_id, estado, inicio, expira, disponible_desde, visto) VALUES (?, 'en_cola', 0, 0, ?, ?)",
+    )
+    .run(usuarioId, ahora + penalizacion(usuarioId), ahora);
+  avanzarCola();
   return Number(r.lastInsertRowid);
 }
 
@@ -159,9 +300,16 @@ export function guardarComprobante(recargaId: number, usuarioId: number, fichero
 }
 
 export function cancelarRecarga(recargaId: number, usuarioId: number) {
-  db()
-    .prepare("UPDATE recargas SET estado = 'cancelada' WHERE id = ? AND usuario_id = ? AND estado = 'escuchando'")
-    .run(recargaId, usuarioId);
+  const r = db()
+    .prepare(
+      `UPDATE recargas SET estado = 'cancelada', fin = ?
+       WHERE id = ? AND usuario_id = ? AND estado IN ('en_cola', 'escuchando')`,
+    )
+    .run(reloj(), recargaId, usuarioId);
+  if (r.changes) {
+    avisar(porId(recargaId));
+    avanzarCola();
+  }
 }
 
 // El usuario dice que un pago detectado es suyo aunque el nombre no cuadre.
@@ -174,12 +322,13 @@ export function reclamarPago(recargaId: number, usuarioId: number, pagoId: numbe
     exigir(r.estado === "escuchando" || r.estado === "vencida", "Esta recarga ya no está activa.");
     const p = db().prepare("SELECT * FROM pagos_yape WHERE id = ?").get(pagoId) as PagoYape | undefined;
     exigir(p && p.estado === "libre", "Ese pago ya fue asignado.");
-    exigir(p.recibido >= r.inicio, "Ese Yape llegó antes de que empezaras la recarga.");
-    exigir(p.recibido <= r.expira + GRACIA_MS, "Ese Yape llegó después de los 2 minutos de la recarga.");
+    exigir(r.inicio && p.recibido >= r.inicio, "Ese Yape llegó antes de que empezara tu turno.");
+    exigir(p.recibido <= r.expira + GRACIA_MS, "Ese Yape llegó después de que terminara tu turno.");
     db()
-      .prepare("UPDATE recargas SET estado = 'revision', pago_id = ?, monto = ?, nota = ? WHERE id = ?")
-      .run(pagoId, p.monto, `Reclamado: Yape de ${p.nombre}`, recargaId);
-    avisar(recarga(recargaId)!);
+      .prepare("UPDATE recargas SET estado = 'revision', pago_id = ?, monto = ?, nota = ?, fin = ? WHERE id = ?")
+      .run(pagoId, p.monto, `Reclamado: Yape de ${p.nombre}`, reloj(), recargaId);
+    avisar(porId(recargaId));
+    avanzarCola();
   });
 }
 
@@ -210,7 +359,7 @@ export function ingresarPago(p: PagoEntrante) {
 }
 
 function intentarEmparejar(pago: PagoYape): number | null {
-  vencerViejas();
+  avanzarCola();
   const candidatas = db()
     .prepare(
       `SELECT r.*, u.nombre_yape FROM recargas r JOIN usuarios u ON u.id = r.usuario_id
@@ -226,8 +375,8 @@ function intentarEmparejar(pago: PagoYape): number | null {
 // 1. Si el nombre coincide claramente con una sola persona, es suya.
 // 2. Si coincide con varias, gana la que más palabras comparte; con empate no
 //    adivinamos y lo resuelve el admin.
-// 3. Si nadie coincide claramente pero solo hay una persona recargando en esos
-//    2 minutos y comparte al menos una palabra entera, también es suya. El Yape
+// 3. Si nadie coincide claramente pero solo hay una persona con turno y
+//    comparte al menos una palabra entera, también es suya. El Yape
 //    del pozo recibe otros pagos, así que sin ninguna palabra en común no se
 //    acredita.
 function elegirCandidata<T extends { nombre_yape: string }>(candidatas: T[], nombre: string) {
@@ -249,10 +398,11 @@ export function acreditar(recargaId: number, pagoId: number) {
     exigir(p && p.estado === "libre", "Ese pago ya se usó.");
     db().prepare("UPDATE pagos_yape SET estado = 'acreditado', recarga_id = ? WHERE id = ?").run(recargaId, pagoId);
     db()
-      .prepare("UPDATE recargas SET estado = 'acreditada', pago_id = ?, monto = ?, nota = ? WHERE id = ?")
-      .run(pagoId, p.monto, `Yape de ${p.nombre}`, recargaId);
+      .prepare("UPDATE recargas SET estado = 'acreditada', pago_id = ?, monto = ?, nota = ?, fin = ? WHERE id = ?")
+      .run(pagoId, p.monto, `Yape de ${p.nombre}`, reloj(), recargaId);
     mover(r.usuario_id, p.monto, "recarga", `Recarga por Yape (${p.nombre}, ${soles(p.monto)})`);
-    avisar(db().prepare("SELECT * FROM recargas WHERE id = ?").get(recargaId) as Recarga);
+    avisar(porId(recargaId));
+    avanzarCola();
   });
 }
 

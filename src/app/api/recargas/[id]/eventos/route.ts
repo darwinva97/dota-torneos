@@ -1,10 +1,10 @@
 import { usuarioActual } from "@/lib/sesion";
 import { escuchar } from "@/lib/yape/bus";
-import { pagosLibresRecientes, recarga } from "@/lib/yape/recargas";
+import { marcarVisto, pagosLibresDeVentana, recarga, vistaRecarga } from "@/lib/yape/recargas";
 
-// Server-Sent Events: la pantalla de recarga se queda escuchando aquí y recibe
-// al instante cada Yape que detecta el observador y el cambio de estado de su
-// propia recarga.
+// Server-Sent Events: la pantalla de recarga se queda escuchando aquí. Recibe
+// al instante cada Yape que detecta el observador y los cambios de su recarga
+// (turno que empieza, acreditada, vencida), y cada 2 s su sitio en la cola.
 export async function GET(_req: Request, ctx: RouteContext<"/api/recargas/[id]/eventos">) {
   const usuario = await usuarioActual();
   const { id } = await ctx.params;
@@ -24,22 +24,28 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/recargas/[id]/e
           soltar();
         }
       };
-      enviar("estado", { estado: r.estado, monto: r.monto, nota: r.nota, expira: r.expira });
-      for (const p of pagosLibresRecientes(r.inicio).reverse()) {
-        enviar("pago", { id: p.id, monto: p.monto, nombre: p.nombre, recibido: p.recibido });
-      }
-
-      const quitar = escuchar((e) => {
-        if (e.tipo === "pago") enviar("pago", e.pago);
-        else if (e.recargaId === r.id) enviar("estado", { estado: e.estado, monto: e.monto, nota: e.nota });
-      });
-      // Latido para que Caddy/Cloudflare no corten la conexión, y para vencer
-      // la recarga cuando se acaba la ventana.
-      const latido = setInterval(() => {
+      // Solo se le muestran los Yapes que llegaron durante su turno.
+      let enviados = new Set<number>();
+      const estado = () => {
+        marcarVisto(r.id);
+        const vista = vistaRecarga(r.id);
+        if (!vista) return;
+        enviar("estado", vista);
         const actual = recarga(r.id);
-        if (actual && actual.estado === "vencida") enviar("estado", { estado: "vencida", monto: null, nota: "" });
-        else enviar("latido", Date.now());
-      }, 15_000);
+        if (!actual) return;
+        for (const p of pagosLibresDeVentana(actual).reverse()) {
+          if (enviados.has(p.id)) continue;
+          enviados = new Set(enviados).add(p.id);
+          enviar("pago", { id: p.id, monto: p.monto, nombre: p.nombre, recibido: p.recibido });
+        }
+      };
+      estado();
+      const quitar = escuchar((e) => {
+        if (e.tipo === "pago" || e.recargaId === r.id) estado();
+      });
+      // Latido: mantiene viva la conexión a través de Caddy y Cloudflare y
+      // actualiza el sitio en la cola.
+      const latido = setInterval(estado, 2000);
       soltar = () => {
         quitar();
         clearInterval(latido);

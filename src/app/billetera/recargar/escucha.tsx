@@ -4,34 +4,37 @@ import Link from "next/link";
 import { useEffect, useState, useActionState } from "react";
 import { useRouter } from "next/navigation";
 import { soles } from "@/lib/dinero";
+import type { VistaRecarga } from "@/lib/yape/recargas";
 import { accionCancelarRecarga, accionReclamar } from "../../acciones/billetera";
 
 type Pago = { id: number; monto: number; nombre: string; recibido: number };
-type EstadoVivo = { estado: string; monto: number | null; nota: string };
 
 export function Escucha({
-  recarga,
+  recargaId,
+  inicial,
   pagosIniciales,
   nombreYape,
   numero,
   titular,
 }: {
-  recarga: { id: number; estado: string; expira: number; monto: number | null; nota: string };
+  recargaId: number;
+  inicial: VistaRecarga;
   pagosIniciales: Pago[];
   nombreYape: string;
   numero: string;
   titular: string;
 }) {
   const router = useRouter();
-  const [vivo, setVivo] = useState<EstadoVivo>(recarga);
+  const [vivo, setVivo] = useState<VistaRecarga>(inicial);
   const [pagos, setPagos] = useState<Pago[]>(pagosIniciales);
   const [conectado, setConectado] = useState(false);
-  const restante = useRestante(recarga.expira);
+  const ahora = useAhora();
 
-  // La escucha arranca al abrir la pantalla, antes de que el usuario suba nada.
+  // La escucha arranca al abrir la pantalla, en la cola o con el turno.
+  const abierta = inicial.estado === "en_cola" || inicial.estado === "escuchando";
   useEffect(() => {
-    if (recarga.estado !== "escuchando") return;
-    const es = new EventSource(`/api/recargas/${recarga.id}/eventos`);
+    if (!abierta) return;
+    const es = new EventSource(`/api/recargas/${recargaId}/eventos`);
     es.onopen = () => setConectado(true);
     es.onerror = () => setConectado(false);
     es.addEventListener("estado", (e) => setVivo(JSON.parse((e as MessageEvent).data)));
@@ -40,7 +43,7 @@ export function Escucha({
       setPagos((prev) => (prev.some((x) => x.id === p.id) ? prev : [p, ...prev]));
     });
     return () => es.close();
-  }, [recarga.id, recarga.estado]);
+  }, [recargaId, abierta]);
 
   // Cuando se acredita, refrescamos el saldo de la cabecera.
   useEffect(() => {
@@ -70,11 +73,12 @@ export function Escucha({
 
   const vencidaConPagos = vivo.estado === "vencida" && pagos.length > 0;
 
-  if (vivo.estado !== "escuchando" && !vencidaConPagos) {
+  if (vivo.estado !== "escuchando" && vivo.estado !== "en_cola" && !vencidaConPagos) {
     const textos: Record<string, string> = {
       revision: "Le avisamos al admin. En cuanto revise el Yape recibido, se suma a tu saldo.",
-      vencida: "Pasaron los 2 minutos sin que llegara tu Yape. Si yapeaste a tiempo y no se acreditó, avísale al admin.",
-      cancelada: vivo.nota || "Esta recarga se canceló.",
+      vencida:
+        "Se acabó tu turno sin que llegara tu Yape. Si vuelves a intentarlo en los próximos 10 minutos, tu turno empezará tras 1 minuto de espera.",
+      cancelada: vivo.nota || "Cancelaste esta recarga.",
     };
     return (
       <div className="mx-auto max-w-lg py-10">
@@ -87,60 +91,113 @@ export function Escucha({
     );
   }
 
+  const cancelar = (
+    <form action={accionCancelarRecarga}>
+      <input type="hidden" name="recarga_id" value={recargaId} />
+      <button className="text-niebla underline underline-offset-4 hover:text-pergamino">
+        {vivo.estado === "en_cola" ? "Salir de la cola" : "Cancelar esta recarga"}
+      </button>
+    </form>
+  );
+
+  const encabezado = (
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <h1 className="text-5xl">Recargar con Yape</h1>
+      <p role="status" aria-live="polite" className="flex items-center gap-2 text-niebla">
+        <span className="relative flex size-3">
+          {conectado && (
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-radiant opacity-60 motion-reduce:hidden" />
+          )}
+          <span className={`relative inline-flex size-3 rounded-full ${conectado ? "bg-radiant" : "bg-niebla"}`} />
+        </span>
+        {!conectado ? "Conectando…" : vivo.estado === "en_cola" ? "En la cola" : "Escuchando pagos"}
+      </p>
+    </header>
+  );
+
+  if (vivo.estado === "en_cola") {
+    const penalizado = ahora !== null && vivo.disponibleDesde > ahora;
+    const falta = ahora === null ? null : Math.max(0, Math.ceil((vivo.empiezaHacia - ahora) / 1000));
+    return (
+      <div className="mx-auto max-w-2xl space-y-8">
+        {encabezado}
+        <section className="panel hud space-y-4 p-6 text-center">
+          {vivo.delante > 0 ? (
+            <>
+              <p className="text-niebla">Hay otra persona recargando. Delante de ti:</p>
+              <p className="cifra text-7xl text-oro">{vivo.delante}</p>
+            </>
+          ) : (
+            <p className="cifra text-3xl text-oro">Eres el siguiente</p>
+          )}
+          {falta !== null && falta > 0 && (
+            <p className="text-niebla">
+              Tu turno empieza en <span className="cifra text-2xl text-pergamino">{reloj(falta)}</span>
+              {vivo.delante > 0 ? " como mucho" : ""}
+            </p>
+          )}
+          {penalizado && (
+            <p className="rounded-md bg-dire/10 px-3 py-2 text-sm text-dire-claro">
+              Tu último turno terminó sin yapear, así que esperas 1 minuto antes de empezar. Si alguien llega mientras
+              tanto, recarga antes que tú.
+            </p>
+          )}
+          <p className="text-sm text-niebla">
+            Solo una persona recarga a la vez para reconocer bien cada Yape. Deja esta pantalla abierta: cuando empiece tu
+            turno tendrás 1 minuto y medio para yapear. <strong className="text-pergamino">No yapees todavía.</strong>
+          </p>
+        </section>
+        {cancelar}
+      </div>
+    );
+  }
+
+  // Acotado a la duración del turno por si los relojes del celular y del servidor difieren.
+  const restante =
+    ahora === null ? null : Math.min(vivo.expira - vivo.inicio, Math.max(0, vivo.expira - ahora)) / 1000 | 0;
+
   return (
     <div className="mx-auto max-w-2xl space-y-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-5xl">Recargar con Yape</h1>
-        <p role="status" aria-live="polite" className="flex items-center gap-2 text-niebla">
-          <span className="relative flex size-3">
-            {conectado && <span className="absolute inline-flex size-full animate-ping rounded-full bg-radiant opacity-60 motion-reduce:hidden" />}
-            <span className={`relative inline-flex size-3 rounded-full ${conectado ? "bg-radiant" : "bg-niebla"}`} />
-          </span>
-          {conectado ? "Escuchando pagos" : "Conectando…"}
-        </p>
-      </header>
-
+      {encabezado}
       <ol className="space-y-5">
         {vencidaConPagos ? (
           <li role="alert" className="rounded-lg border border-oro/50 bg-oro/10 p-5">
-            <h2 className="text-2xl">Se acabaron los 2 minutos</h2>
+            <h2 className="text-2xl">Se acabó tu turno</h2>
             <p className="mt-1 text-niebla">
-              Llegó un Yape durante tu recarga pero no lo reconocimos solos. Si es tuyo, pulsa «Es mío»: el admin lo
-              revisa y te lo acredita.
+              Llegó un Yape durante tu turno pero no lo reconocimos solos. Si es tuyo, pulsa «Es mío»: el admin lo revisa
+              y te lo acredita.
             </p>
           </li>
         ) : (
-        <li className="rounded-lg border border-yape/70 bg-yape/15 p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-2xl">Yapea al pozo</h2>
-            {restante !== null && (
-              <p aria-live="off" className={restante > 30 ? "text-pergamino" : "text-dire-claro"}>
-                {restante > 0 ? (
-                  <>
-                    te quedan{" "}
-                    <span className="cifra text-3xl">
-                      {Math.floor(restante / 60)}:{String(restante % 60).padStart(2, "0")}
-                    </span>
-                  </>
-                ) : (
-                  "Se acabó el tiempo. Si ya yapeaste, espera unos segundos a que llegue."
-                )}
-              </p>
+          <li className="rounded-lg border border-yape/70 bg-yape/15 p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="text-2xl">Es tu turno: yapea al pozo</h2>
+              {restante !== null && (
+                <p aria-live="off" className={restante > 20 ? "text-pergamino" : "text-dire-claro"}>
+                  {restante > 0 ? (
+                    <>
+                      te quedan <span className="cifra text-3xl">{reloj(restante)}</span>
+                    </>
+                  ) : (
+                    "Se acabó el tiempo. Si ya yapeaste, espera unos segundos a que llegue."
+                  )}
+                </p>
+              )}
+            </div>
+            {numero ? (
+              <>
+                <p className="cifra mt-2 text-5xl tracking-wide">{numero.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}</p>
+                {titular && <p className="text-niebla">a nombre de {titular}</p>}
+              </>
+            ) : (
+              <p className="mt-2 text-niebla">El admin todavía no configuró el número del pozo. Pídeselo por el grupo.</p>
             )}
-          </div>
-          {numero ? (
-            <>
-              <p className="cifra mt-2 text-5xl tracking-wide">{numero.replace(/(\d{3})(\d{3})(\d{3})/, "$1 $2 $3")}</p>
-              {titular && <p className="text-niebla">a nombre de {titular}</p>}
-            </>
-          ) : (
-            <p className="mt-2 text-niebla">El admin todavía no configuró el número del pozo. Pídeselo por el grupo.</p>
-          )}
-          <p className="mt-3 text-sm text-niebla">
-            Solo cuenta un Yape hecho después de pulsar «Recargar» y dentro de estos 2 minutos. Yapea desde la cuenta a nombre de <span className="text-pergamino">{nombreYape}</span>. Si yapeas desde otra,
-            no podremos reconocerlo solos y tendrá que revisarlo el admin.
-          </p>
-        </li>
+            <p className="mt-3 text-sm text-niebla">
+              Durante tu turno nadie más puede recargar. Yapea desde la cuenta a nombre de{" "}
+              <span className="text-pergamino">{nombreYape}</span>; si yapeas desde otra, quizá no lo reconozcamos solos y
+              tendrá que revisarlo el admin.
+            </p>
+          </li>
         )}
 
         <li className="panel p-5">
@@ -152,18 +209,18 @@ export function Escucha({
           <ul aria-live="polite" className="mt-4 divide-y divide-borde">
             {pagos.length === 0 && <li className="py-3 text-niebla">Todavía no llegó ningún Yape.</li>}
             {pagos.map((p) => (
-              <FilaPago key={p.id} p={p} recargaId={recarga.id} />
+              <FilaPago key={p.id} p={p} recargaId={recargaId} />
             ))}
           </ul>
         </li>
       </ol>
-
-      <form action={accionCancelarRecarga}>
-        <input type="hidden" name="recarga_id" value={recarga.id} />
-        <button className="text-niebla underline underline-offset-4 hover:text-pergamino">Cancelar esta recarga</button>
-      </form>
+      {vivo.estado === "escuchando" && cancelar}
     </div>
   );
+}
+
+function reloj(segundos: number) {
+  return `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, "0")}`;
 }
 
 function FilaPago({ p, recargaId }: { p: Pago; recargaId: number }) {
@@ -191,7 +248,9 @@ function FilaPago({ p, recargaId }: { p: Pago; recargaId: number }) {
   );
 }
 
-function useRestante(expira: number) {
+// Hora actual, tic cada segundo. null en el primer render para no desajustar
+// el HTML del servidor con el del navegador.
+function useAhora() {
   const [ahora, setAhora] = useState<number | null>(null);
   useEffect(() => {
     const tic = () => setAhora(Date.now());
@@ -202,6 +261,5 @@ function useRestante(expira: number) {
       clearInterval(cada);
     };
   }, []);
-  if (ahora === null) return null;
-  return Math.max(0, Math.ceil((expira - ahora) / 1000));
+  return ahora;
 }

@@ -202,6 +202,11 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   // (inscripciones y garantías perdidas) se suma al premio o va al organizador.
   ["torneos", "premio_base", "INTEGER NOT NULL DEFAULT 0"],
   ["torneos", "suma_recaudado", "INTEGER NOT NULL DEFAULT 1"],
+  // Cola de recargas: cuándo puede empezar su turno (penalización), cuándo
+  // terminó y la última vez que su pantalla estaba abierta.
+  ["recargas", "disponible_desde", "INTEGER NOT NULL DEFAULT 0"],
+  ["recargas", "fin", "INTEGER NOT NULL DEFAULT 0"],
+  ["recargas", "visto", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function migrar(db: Database.Database) {

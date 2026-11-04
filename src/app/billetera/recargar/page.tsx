@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
-import { pagosLibresDeVentana, recarga } from "@/lib/yape/recargas";
+import { pagosLibresDeVentana, recarga, vistaRecarga } from "@/lib/yape/recargas";
 import { Cargando } from "@/components/ui";
 import { Escucha } from "./escucha";
 
@@ -24,7 +24,8 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera
 
   return (
     <Escucha
-      recarga={{ id: rec.id, estado: rec.estado, expira: rec.expira, monto: rec.monto, nota: rec.nota }}
+      recargaId={rec.id}
+      inicial={vistaRecarga(rec.id)!}
       pagosIniciales={pagosLibresDeVentana(rec).map((p) => ({ id: p.id, monto: p.monto, nombre: p.nombre, recibido: p.recibido }))}
       nombreYape={u.nombre_yape}
       numero={process.env.YAPE_NUMERO ?? ""}
