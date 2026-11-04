@@ -32,15 +32,16 @@ El primer usuario que se registra es admin. Para nombrar a otro:
 
 ## Recargas con Yape
 
-1. El usuario pulsa «Recargar». Desde ese momento tiene **3 minutos** para yapear
+1. El usuario pulsa «Recargar». Desde ese momento tiene **2 minutos** para yapear
    (más 30 s de gracia para que la notificación llegue). Solo cuentan los Yapes que
-   llegan después de pulsar.
-2. Yapea al número del pozo y sube la captura.
-3. El observador, [yapi](https://github.com/darwinva97/yapi), lee la notificación
+   llegan después de pulsar. No hace falta subir captura.
+2. El observador, [yapi](https://github.com/darwinva97/yapi), lee la notificación
    de Yape en el celular del pozo y nos la reenvía.
-4. Si el nombre coincide con el «nombre en Yape» de un único usuario que está
-   escuchando, se acredita solo. Si no, el usuario pulsa «Es mío» y el admin lo
-   confirma mirando la captura.
+3. Se acredita solo si el nombre del pago comparte al menos una palabra entera y
+   otra más (entera o recortada por Yape, como «R.» o «Con*») con el «nombre en
+   Yape» de quien recarga. Si nadie coincide así pero solo hay una persona
+   recargando y comparte una palabra, también se le acredita.
+4. Si no se reconoce, el usuario pulsa «Es mío» y el admin lo confirma.
 
 ### Conectar yapi
 

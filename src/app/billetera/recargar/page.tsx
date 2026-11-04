@@ -24,7 +24,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera
 
   return (
     <Escucha
-      recarga={{ id: rec.id, estado: rec.estado, expira: rec.expira, monto: rec.monto, nota: rec.nota, conCaptura: !!rec.comprobante }}
+      recarga={{ id: rec.id, estado: rec.estado, expira: rec.expira, monto: rec.monto, nota: rec.nota }}
       pagosIniciales={pagosLibresDeVentana(rec).map((p) => ({ id: p.id, monto: p.monto, nombre: p.nombre, recibido: p.recibido }))}
       nombreYape={u.nombre_yape}
       numero={process.env.YAPE_NUMERO ?? ""}

@@ -16,7 +16,7 @@ export function Escucha({
   numero,
   titular,
 }: {
-  recarga: { id: number; estado: string; expira: number; monto: number | null; nota: string; conCaptura: boolean };
+  recarga: { id: number; estado: string; expira: number; monto: number | null; nota: string };
   pagosIniciales: Pago[];
   nombreYape: string;
   numero: string;
@@ -26,11 +26,6 @@ export function Escucha({
   const [vivo, setVivo] = useState<EstadoVivo>(recarga);
   const [pagos, setPagos] = useState<Pago[]>(pagosIniciales);
   const [conectado, setConectado] = useState(false);
-  const [captura, setCaptura] = useState<{ subiendo: boolean; url?: string; error?: string; lista: boolean }>({
-    subiendo: false,
-    lista: recarga.conCaptura,
-    url: recarga.conCaptura ? `/api/recargas/${recarga.id}/comprobante` : undefined,
-  });
   const restante = useRestante(recarga.expira);
 
   // La escucha arranca al abrir la pantalla, antes de que el usuario suba nada.
@@ -51,20 +46,6 @@ export function Escucha({
   useEffect(() => {
     if (vivo.estado === "acreditada") router.refresh();
   }, [vivo.estado, router]);
-
-  async function subir(archivo: File) {
-    setCaptura((c) => ({ ...c, subiendo: true, error: undefined }));
-    const fd = new FormData();
-    fd.set("captura", archivo);
-    const res = await fetch(`/api/recargas/${recarga.id}/comprobante`, { method: "POST", body: fd });
-    const json = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) {
-      const error = json.error ?? `No se pudo subir la captura (error ${res.status}). Prueba con otra imagen.`;
-      setCaptura((c) => ({ ...c, subiendo: false, error }));
-      return;
-    }
-    setCaptura({ subiendo: false, lista: true, url: URL.createObjectURL(archivo) });
-  }
 
   if (vivo.estado === "acreditada") {
     return (
@@ -91,8 +72,8 @@ export function Escucha({
 
   if (vivo.estado !== "escuchando" && !vencidaConPagos) {
     const textos: Record<string, string> = {
-      revision: "Le avisamos al admin. En cuanto compare tu captura con el Yape recibido, se suma a tu saldo.",
-      vencida: "Pasaron los 3 minutos sin que llegara tu Yape. Si yapeaste a tiempo y no se acreditó, avísale al admin con tu captura.",
+      revision: "Le avisamos al admin. En cuanto revise el Yape recibido, se suma a tu saldo.",
+      vencida: "Pasaron los 2 minutos sin que llegara tu Yape. Si yapeaste a tiempo y no se acreditó, avísale al admin.",
       cancelada: vivo.nota || "Esta recarga se canceló.",
     };
     return (
@@ -122,10 +103,10 @@ export function Escucha({
       <ol className="space-y-5">
         {vencidaConPagos ? (
           <li role="alert" className="rounded-lg border border-oro/50 bg-oro/10 p-5">
-            <h2 className="text-2xl">Se acabaron los 3 minutos</h2>
+            <h2 className="text-2xl">Se acabaron los 2 minutos</h2>
             <p className="mt-1 text-niebla">
-              Llegó un Yape durante tu recarga pero no lo reconocimos solos. Si es tuyo, sube la captura y pulsa «Es
-              mío»: el admin lo revisa y te lo acredita.
+              Llegó un Yape durante tu recarga pero no lo reconocimos solos. Si es tuyo, pulsa «Es mío»: el admin lo
+              revisa y te lo acredita.
             </p>
           </li>
         ) : (
@@ -156,52 +137,22 @@ export function Escucha({
             <p className="mt-2 text-niebla">El admin todavía no configuró el número del pozo. Pídeselo por el grupo.</p>
           )}
           <p className="mt-3 text-sm text-niebla">
-            Solo cuenta un Yape hecho después de pulsar «Recargar» y dentro de estos 3 minutos. Yapea desde la cuenta a nombre de <span className="text-pergamino">{nombreYape}</span>. Si yapeas desde otra,
+            Solo cuenta un Yape hecho después de pulsar «Recargar» y dentro de estos 2 minutos. Yapea desde la cuenta a nombre de <span className="text-pergamino">{nombreYape}</span>. Si yapeas desde otra,
             no podremos reconocerlo solos y tendrá que revisarlo el admin.
           </p>
         </li>
         )}
 
         <li className="panel p-5">
-          <h2 className="text-2xl">Sube la captura</h2>
-          <p className="mt-1 mb-3 text-sm text-niebla">
-            Toma la captura de la constancia del Yape. Nos sirve de prueba si el pago no se reconoce solo.
-          </p>
-          <div className="flex flex-wrap items-center gap-4">
-            <label className={`boton-sobrio cursor-pointer ${captura.subiendo ? "opacity-50" : ""}`}>
-              {captura.lista ? "Cambiar captura" : "Elegir captura"}
-              <input
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                disabled={captura.subiendo}
-                onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])}
-              />
-            </label>
-            {captura.subiendo && <span className="text-niebla">Subiendo…</span>}
-            {captura.lista && !captura.subiendo && <span className="text-radiant">Captura guardada</span>}
-            {captura.url && (
-              // eslint-disable-next-line @next/next/no-img-element -- imagen privada servida por la API
-              <img src={captura.url} alt="Tu captura de Yape" className="h-24 rounded border border-borde object-cover" />
-            )}
-          </div>
-          {captura.error && (
-            <p role="alert" className="mt-2 text-sm text-dire-claro">
-              {captura.error}
-            </p>
-          )}
-        </li>
-
-        <li className="panel p-5">
           <h2 className="text-2xl">Espera a que llegue</h2>
           <p className="mt-1 text-sm text-niebla">
-            Si llega a tu nombre, se acredita solo y esta pantalla cambia. Si ves tu pago aquí y no se acreditó (por
-            ejemplo, porque yapeaste desde otra cuenta), pulsa «Es mío».
+            Cuando llegue, se acredita solo y esta pantalla cambia. Si ves tu pago aquí y no se acreditó (por ejemplo,
+            porque yapeaste desde otra cuenta), pulsa «Es mío».
           </p>
           <ul aria-live="polite" className="mt-4 divide-y divide-borde">
             {pagos.length === 0 && <li className="py-3 text-niebla">Todavía no llegó ningún Yape.</li>}
             {pagos.map((p) => (
-              <FilaPago key={p.id} p={p} recargaId={recarga.id} conCaptura={captura.lista} />
+              <FilaPago key={p.id} p={p} recargaId={recarga.id} />
             ))}
           </ul>
         </li>
@@ -215,7 +166,7 @@ export function Escucha({
   );
 }
 
-function FilaPago({ p, recargaId, conCaptura }: { p: Pago; recargaId: number; conCaptura: boolean }) {
+function FilaPago({ p, recargaId }: { p: Pago; recargaId: number }) {
   const [estado, despachar, enviando] = useActionState(accionReclamar, null);
   const hora = new Date(p.recibido).toLocaleTimeString("es-PE", {
     timeZone: "America/Lima",
@@ -230,15 +181,12 @@ function FilaPago({ p, recargaId, conCaptura }: { p: Pago; recargaId: number; co
       <form action={despachar} className="ml-auto">
         <input type="hidden" name="recarga_id" value={recargaId} />
         <input type="hidden" name="pago_id" value={p.id} />
-        <button
-          className="boton-sobrio px-3 py-1 text-sm"
-          disabled={enviando || !conCaptura}
-          title={conCaptura ? undefined : "Sube primero tu captura"}
-        >
+        <button className="boton-sobrio px-3 py-1 text-sm" disabled={enviando || estado?.ok !== undefined}>
           Es mío
         </button>
       </form>
       {estado?.error && <p className="basis-full text-sm text-dire-claro">{estado.error}</p>}
+      {estado?.ok && <p className="basis-full text-sm text-radiant">{estado.ok}</p>}
     </li>
   );
 }

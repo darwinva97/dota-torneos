@@ -64,7 +64,7 @@ export function Logo() {
         <ellipse cx="16" cy="12.5" rx="7" ry="2.6" fill="none" stroke="url(#logo-oro)" strokeWidth="1.8" />
         <path d="M9 12.5v6.5c0 1.5 3.1 2.7 7 2.7s7-1.2 7-2.7v-6.5" fill="none" stroke="url(#logo-oro)" strokeWidth="1.8" />
       </svg>
-      <span className="cifra text-xl font-bold tracking-tight text-pergamino">El Pozo</span>
+      <span className="cifra text-xl font-bold tracking-tight whitespace-nowrap text-pergamino">El Pozo</span>
     </Link>
   );
 }

@@ -31,6 +31,8 @@ assert.ok(R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Con*"));
 assert.ok(!R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Per*"));
 assert.ok(!R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Co"), "sin * no se toma como prefijo");
 assert.ok(R.nombreCoincide("Darwin Vilcachagua Ayala", "DARWIN STALIN VILCACHAGUA"));
+assert.ok(R.nombreCoincide("Alain Jherimy Conislla Alamo", "Jherimy Conislla"), "sin el primer nombre");
+assert.ok(!R.nombreCoincide("Rosa Diaz", "Rosa"));
 
 // --- Recargas ---
 const jugadores = Array.from({ length: 6 }, (_, i) => nuevo(`j${i}`, `Jugador${i} Apellido${i}`));
@@ -47,9 +49,9 @@ const rTarde = R.abrirRecarga(jugadores[0]);
 const inicio = R.recarga(rTarde)!.inicio;
 const antes = R.ingresarPago({ externoId: "previo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio - 5_000, fuente: "test" });
 assert.equal(antes.nuevo && antes.recargaId, null, "un Yape anterior a la recarga no cuenta");
-const tarde = R.ingresarPago({ externoId: "tarde", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 3 * 60_000 + 31_000, fuente: "test" });
-assert.equal(tarde.nuevo && tarde.recargaId, null, "pasados 3 min + 30 s de gracia no cuenta");
-const justo = R.ingresarPago({ externoId: "justo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 3 * 60_000 + 10_000, fuente: "test" });
+const tarde = R.ingresarPago({ externoId: "tarde", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 2 * 60_000 + 31_000, fuente: "test" });
+assert.equal(tarde.nuevo && tarde.recargaId, null, "pasados 2 min + 30 s de gracia no cuenta");
+const justo = R.ingresarPago({ externoId: "justo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 2 * 60_000 + 10_000, fuente: "test" });
 assert.equal(justo.nuevo && justo.recargaId, rTarde, "dentro de la gracia sí cuenta");
 assert.equal(saldo(jugadores[0]), 6000);
 
@@ -61,12 +63,10 @@ const pYapi = Y.pagoDesdeYapi({ deliveredAt: new Date().toISOString(), notificat
 const pYapi2 = Y.pagoDesdeYapi({ deliveredAt: new Date().toISOString(), notification: { id: "n2", title: "Confirmación de Pago", description: "Yape! Rosa Diaz te envió un pago por S/ 7.50" } });
 assert.equal(pYapi?.monto, 750);
 assert.equal(pYapi?.externoId, pYapi2?.externoId, "la misma notificación repetida no se cuenta dos veces");
-// Nombre que no cuadra: queda libre y se reclama con captura.
+// Nombre que no cuadra: queda libre y el usuario lo reclama (sin captura).
 const rj1 = R.abrirRecarga(jugadores[1]);
 const libre = R.ingresarPago({ externoId: "ajeno", monto: 700, nombre: "Maria Lopez", recibido: Date.now(), fuente: "test" });
 assert.equal(libre.nuevo && libre.recargaId, null);
-assert.throws(() => R.reclamarPago(rj1, jugadores[1], libre.nuevo ? libre.pagoId : 0), /captura/);
-R.guardarComprobante(rj1, jugadores[1], "x.png");
 R.reclamarPago(rj1, jugadores[1], libre.nuevo ? libre.pagoId : 0);
 R.acreditar(rj1, libre.nuevo ? libre.pagoId : 0);
 assert.equal(saldo(jugadores[1]), 5700);
@@ -275,6 +275,22 @@ assert.throws(() => Bi.crearDeuda({ deudorId: deudor, acreedorId: deudor, monto:
 // Las deudas mueven dinero entre jugadores, no lo crean ni lo destruyen.
 assert.equal(total(), dinero0 - 100 + 1300);
 
+// Con una sola persona recargando basta una palabra en común; con dos, no.
+const solo1 = nuevo("solo1", "Kevin Ramos Lazo");
+const rs = R.abrirRecarga(solo1);
+const ps = R.ingresarPago({ externoId: "solo-1", monto: 200, nombre: "Kevin Tor*", recibido: Date.now(), fuente: "test" });
+assert.equal(ps.nuevo && ps.recargaId, rs, "única persona recargando y comparte «Kevin»");
+const ajeno = R.ingresarPago({ externoId: "ajeno-2", monto: 200, nombre: "Maria Lopez", recibido: Date.now(), fuente: "test" });
+assert.equal(ajeno.nuevo && ajeno.recargaId, null);
+const solo2 = nuevo("solo2", "Kevin Diaz Soto");
+const solo3 = nuevo("solo3", "Kevin Paz Ruiz");
+R.abrirRecarga(solo2);
+R.abrirRecarga(solo3);
+const amb = R.ingresarPago({ externoId: "ambiguo", monto: 200, nombre: "Kevin Tor*", recibido: Date.now(), fuente: "test" });
+assert.equal(amb.nuevo && amb.recargaId, null, "dos recargando con solo el nombre en común: no se adivina");
+const clara = R.ingresarPago({ externoId: "clara", monto: 200, nombre: "Kevin Paz R.", recibido: Date.now(), fuente: "test" });
+assert.equal(R.recarga(clara.nuevo ? clara.recargaId! : 0)?.usuario_id, solo3, "gana quien más coincide");
+
 // Reclamo con la recarga ya vencida: vale si el Yape llegó dentro de la ventana.
 const tardio = nuevo("tardio", "Pedro Tardio");
 const rv = R.abrirRecarga(tardio);
@@ -283,7 +299,6 @@ const pv = R.ingresarPago({ externoId: "otra-cuenta", monto: 500, nombre: "Rosa 
 assert.equal(pv.nuevo && pv.recargaId, null);
 db().prepare("UPDATE recargas SET estado = 'vencida' WHERE id = ?").run(rv);
 assert.equal(R.pagosLibresDeVentana(R.recarga(rv)!).length, 1);
-R.guardarComprobante(rv, tardio, "c.png");
 R.reclamarPago(rv, tardio, pv.nuevo ? pv.pagoId : 0);
 assert.equal(R.recarga(rv)!.estado, "revision");
 

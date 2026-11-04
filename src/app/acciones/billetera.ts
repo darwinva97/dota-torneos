@@ -29,7 +29,7 @@ export async function accionReclamar(_: Estado, fd: FormData): Promise<Estado> {
   } catch (e) {
     return aEstado(e);
   }
-  return { ok: "Enviado al admin. Lo acreditará cuando revise tu captura." };
+  return { ok: "Enviado al admin. Lo acreditará cuando lo revise." };
 }
 
 export async function accionRetiro(_: Estado, fd: FormData): Promise<Estado> {

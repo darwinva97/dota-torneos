@@ -7,15 +7,15 @@ import { emitir } from "./bus";
 
 // Flujo de recarga:
 //  1. El usuario pulsa «Recargar»: se abre una recarga en estado «escuchando».
-//  2. Tiene 3 minutos para yapear al número del pozo; sube la captura (queda
-//     como comprobante). Solo cuentan los Yapes que llegan después de pulsar.
-//  3. El observador (la app del celular que lee las notificaciones de Yape, o
-//     la API que la expone) reporta cada pago con monto y nombre → ingresarPago.
-//  4. Si el nombre del pago coincide con el nombre de Yape de exactamente un
-//     usuario que está escuchando, se acredita solo. Si no, el usuario puede
-//     decir «es mío» y un admin lo confirma mirando la captura.
+//  2. Tiene 2 minutos para yapear al número del pozo. Solo cuentan los Yapes
+//     que llegan después de pulsar.
+//  3. El observador (yapi, que lee las notificaciones de Yape en el celular del
+//     pozo) reporta cada pago con monto y nombre → ingresarPago.
+//  4. Se acredita solo si el nombre del pago coincide con el «nombre en Yape» de
+//     quien está recargando (ver puntuarNombre). Si no, el usuario puede decir
+//     «es mío» y un admin lo confirma.
 
-export const VENTANA_MS = 3 * 60 * 1000;
+export const VENTANA_MS = 2 * 60 * 1000;
 // Un Yape hecho en el segundo 2:59 tarda unos segundos en notificarse y en
 // pasar por yapi; lo aceptamos si llega dentro de esta gracia tras el plazo.
 const GRACIA_MS = 30 * 1000;
@@ -63,21 +63,34 @@ function palabras(nombre: string): Palabra[] {
     .filter((w) => w.texto);
 }
 
-// Damos por buena la coincidencia si el primer nombre es igual y al menos otra
-// palabra aparece en el nombre registrado, entera o como comienzo si Yape la
-// recortó: «Juan C. Perez R.», «Alain Con*», «DARWIN STALIN VILCACHAGUA».
+// Cuántas palabras del nombre del pago aparecen en el nombre registrado, en
+// cualquier orden: una palabra entera cuenta 2 y una recortada por Yape
+// («R.», «Con*») cuenta 1 si es el comienzo de alguna palabra registrada.
+// Cada palabra registrada se usa una sola vez.
+export function puntuarNombre(registrado: string, delPago: string) {
+  const libres = palabras(registrado).map((w) => w.texto);
+  let puntos = 0;
+  let enteras = 0;
+  // Primero las enteras, para que una recortada no le robe la palabra a una entera.
+  const delP = palabras(delPago).sort((x, y) => Number(x.prefijo) - Number(y.prefijo));
+  for (const t of delP) {
+    const recortada = t.prefijo || t.texto.length === 1;
+    const i = libres.findIndex((x) => x === t.texto || (recortada && x.startsWith(t.texto)));
+    if (i === -1) continue;
+    const entera = libres[i] === t.texto && !recortada;
+    puntos += entera ? 2 : 1;
+    if (entera) enteras++;
+    libres.splice(i, 1);
+  }
+  return { puntos, enteras };
+}
+
+// Coincide si hay al menos una palabra entera y otra más (entera o recortada):
+// «Juan C. Perez R.», «Alain Con*», «DARWIN STALIN VILCACHAGUA».
 export function nombreCoincide(registrado: string, delPago: string) {
-  const a = palabras(registrado).map((w) => w.texto);
-  const b = palabras(delPago);
-  if (a.length === 0 || b.length === 0) return false;
-  const primero = b[0].texto;
-  if (!a.includes(primero)) return false;
-  if (b.length === 1) return a.length === 1;
-  return b
-    .slice(1)
-    .some((t) =>
-      a.some((x) => x !== primero && (x === t.texto || ((t.prefijo || t.texto.length === 1) && x.startsWith(t.texto)))),
-    );
+  const { puntos, enteras } = puntuarNombre(registrado, delPago);
+  const unaSolaPalabra = palabras(registrado).length === 1 && palabras(delPago).length === 1;
+  return enteras >= 1 && (puntos >= 3 || unaSolaPalabra);
 }
 
 // --- Lectura ---
@@ -157,13 +170,12 @@ export function reclamarPago(recargaId: number, usuarioId: number, pagoId: numbe
     const r = recarga(recargaId);
     exigir(r && r.usuario_id === usuarioId, "Esa recarga no es tuya.");
     // También vale con la recarga vencida: el Yape pudo llegar a tiempo y no
-    // reconocerse solo, y el plazo se acabó mientras subía la captura.
+    // reconocerse solo.
     exigir(r.estado === "escuchando" || r.estado === "vencida", "Esta recarga ya no está activa.");
-    exigir(r.comprobante, "Sube primero la captura de tu Yape: el admin la necesita para confirmarlo.");
     const p = db().prepare("SELECT * FROM pagos_yape WHERE id = ?").get(pagoId) as PagoYape | undefined;
     exigir(p && p.estado === "libre", "Ese pago ya fue asignado.");
     exigir(p.recibido >= r.inicio, "Ese Yape llegó antes de que empezaras la recarga.");
-    exigir(p.recibido <= r.expira + GRACIA_MS, "Ese Yape llegó después de los 3 minutos de la recarga.");
+    exigir(p.recibido <= r.expira + GRACIA_MS, "Ese Yape llegó después de los 2 minutos de la recarga.");
     db()
       .prepare("UPDATE recargas SET estado = 'revision', pago_id = ?, monto = ?, nota = ? WHERE id = ?")
       .run(pagoId, p.monto, `Reclamado: Yape de ${p.nombre}`, recargaId);
@@ -205,11 +217,28 @@ function intentarEmparejar(pago: PagoYape): number | null {
        WHERE r.estado = 'escuchando' AND r.inicio <= ? AND r.expira + ? >= ?`,
     )
     .all(pago.recibido, GRACIA_MS, pago.recibido) as (Recarga & { nombre_yape: string })[];
-  const coinciden = candidatas.filter((c) => nombreCoincide(c.nombre_yape, pago.nombre));
-  // Con dos candidatos del mismo nombre no adivinamos: que lo vea el admin.
-  if (coinciden.length !== 1) return null;
-  acreditar(coinciden[0].id, pago.id);
-  return coinciden[0].id;
+  const elegida = elegirCandidata(candidatas, pago.nombre);
+  if (!elegida) return null;
+  acreditar(elegida.id, pago.id);
+  return elegida.id;
+}
+
+// 1. Si el nombre coincide claramente con una sola persona, es suya.
+// 2. Si coincide con varias, gana la que más palabras comparte; con empate no
+//    adivinamos y lo resuelve el admin.
+// 3. Si nadie coincide claramente pero solo hay una persona recargando en esos
+//    2 minutos y comparte al menos una palabra entera, también es suya. El Yape
+//    del pozo recibe otros pagos, así que sin ninguna palabra en común no se
+//    acredita.
+function elegirCandidata<T extends { nombre_yape: string }>(candidatas: T[], nombre: string) {
+  const puntuadas = candidatas.map((c) => ({ c, ...puntuarNombre(c.nombre_yape, nombre) }));
+  const claras = puntuadas
+    .filter((x) => nombreCoincide(x.c.nombre_yape, nombre))
+    .sort((x, y) => y.puntos - x.puntos);
+  if (claras.length === 1) return claras[0].c;
+  if (claras.length > 1) return claras[0].puntos > claras[1].puntos ? claras[0].c : null;
+  if (puntuadas.length === 1 && puntuadas[0].enteras >= 1) return puntuadas[0].c;
+  return null;
 }
 
 export function acreditar(recargaId: number, pagoId: number) {

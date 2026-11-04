@@ -157,7 +157,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
                     </Formulario>
                     <Formulario accion={accionRechazarRecarga}>
                       <input type="hidden" name="recarga_id" value={r.id} />
-                      <input type="hidden" name="nota" value="La captura no coincide con el Yape recibido" />
+                      <input type="hidden" name="nota" value="El admin no reconoció ese Yape como tuyo" />
                       <Enviar variante="boton-peligro">Rechazar</Enviar>
                     </Formulario>
                   </div>
