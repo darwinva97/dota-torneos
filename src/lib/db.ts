@@ -207,6 +207,8 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   ["recargas", "disponible_desde", "INTEGER NOT NULL DEFAULT 0"],
   ["recargas", "fin", "INTEGER NOT NULL DEFAULT 0"],
   ["recargas", "visto", "INTEGER NOT NULL DEFAULT 0"],
+  // Monto que el usuario dijo que iba a yapear (céntimos; 0 si no lo dijo).
+  ["recargas", "monto_esperado", "INTEGER NOT NULL DEFAULT 0"],
   // Modalidad de la apuesta. Las anteriores al parche quedan como «pozo».
   ["mercados", "modalidad", "TEXT NOT NULL DEFAULT 'pozo'"],
   // Juego del torneo y, en ajedrez, el ritmo («blitz 3+2»).

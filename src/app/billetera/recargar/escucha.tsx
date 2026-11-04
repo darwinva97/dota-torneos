@@ -144,7 +144,7 @@ export function Escucha({
           )}
           <p className="text-sm text-niebla">
             Solo una persona recarga a la vez para reconocer bien cada Yape. Deja esta pantalla abierta: cuando empiece tu
-            turno tendrás 1 minuto y medio para yapear. <strong className="text-pergamino">No yapees todavía.</strong>
+            turno tendrás 30 segundos para yapear{vivo.montoEsperado ? ` ${soles(vivo.montoEsperado)}` : ""}. <strong className="text-pergamino">No yapees todavía.</strong>
           </p>
         </section>
         {cancelar}
@@ -171,7 +171,9 @@ export function Escucha({
         ) : (
           <li className="rounded-lg border border-yape/70 bg-yape/15 p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <h2 className="text-2xl">Es tu turno: yapea al pozo</h2>
+              <h2 className="text-2xl">
+                Es tu turno: yapea {vivo.montoEsperado ? <span className="cifra text-oro">{soles(vivo.montoEsperado)}</span> : "al pozo"}
+              </h2>
               {restante !== null && (
                 <p aria-live="off" className={restante > 20 ? "text-pergamino" : "text-dire-claro"}>
                   {restante > 0 ? (
@@ -193,9 +195,10 @@ export function Escucha({
               <p className="mt-2 text-niebla">El admin todavía no configuró el número del pozo. Pídeselo por el grupo.</p>
             )}
             <p className="mt-3 text-sm text-niebla">
-              Durante tu turno nadie más puede recargar. Yapea desde la cuenta a nombre de{" "}
-              <span className="text-pergamino">{nombreYape}</span>; si yapeas desde otra, quizá no lo reconozcamos solos y
-              tendrá que revisarlo el admin.
+              Durante tu turno nadie más puede recargar.{" "}
+              {vivo.montoEsperado
+                ? `Lo reconocemos por el monto: yapea exactamente ${soles(vivo.montoEsperado)}, desde la cuenta que quieras.`
+                : `Yapea desde la cuenta a nombre de ${nombreYape} para que lo reconozcamos solos.`}
             </p>
           </li>
         )}
@@ -203,8 +206,8 @@ export function Escucha({
         <li className="panel p-5">
           <h2 className="text-2xl">Espera a que llegue</h2>
           <p className="mt-1 text-sm text-niebla">
-            Cuando llegue, se acredita solo y esta pantalla cambia. Si ves tu pago aquí y no se acreditó (por ejemplo,
-            porque yapeaste desde otra cuenta), pulsa «Es mío».
+            Si llega por el monto que dijiste, se acredita solo y esta pantalla cambia. Si ves tu pago aquí y no se
+            acreditó (por ejemplo, porque yapeaste otro monto), pulsa «Es mío» y lo revisa el admin.
           </p>
           <ul aria-live="polite" className="mt-4 divide-y divide-borde">
             {pagos.length === 0 && <li className="py-3 text-niebla">Todavía no llegó ningún Yape.</li>}

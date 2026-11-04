@@ -145,7 +145,12 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
                     <dd>
                       <Dinero centimos={r.pago_monto ?? 0} moneda={false} />
                     </dd>
+                    <dt className="text-niebla">Dijo que yapearía</dt>
+                    <dd>{r.monto_esperado ? soles(r.monto_esperado) : "No lo dijo"}</dd>
                   </dl>
+                  {!!r.monto_esperado && r.pago_monto !== r.monto_esperado && (
+                    <p className="text-sm text-dire-claro">El monto no cuadra con lo que dijo que iba a yapear.</p>
+                  )}
                   {r.pago_estado !== "libre" && (
                     <p className="text-sm text-dire-claro">Ese pago ya se acreditó a otra recarga.</p>
                   )}
@@ -388,6 +393,7 @@ function ColaRecargas() {
               </span>
               <span className={c.estado === "escuchando" ? "text-radiant" : "text-niebla"}>
                 {c.estado === "escuchando" ? "con turno" : "esperando"}
+                {c.monto_esperado ? `, ${soles(c.monto_esperado)}` : ""}
               </span>
             </li>
           ))}

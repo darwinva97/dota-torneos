@@ -37,7 +37,7 @@ assert.ok(!R.nombreCoincide("Rosa Diaz", "Rosa"));
 // --- Recargas ---
 const jugadores = Array.from({ length: 6 }, (_, i) => nuevo(`j${i}`, `Jugador${i} Apellido${i}`));
 for (const [i, id] of jugadores.entries()) {
-  const r = R.abrirRecarga(id);
+  const r = R.abrirRecarga(id, 5000);
   const res = R.ingresarPago({ externoId: `p${i}`, monto: 5000, nombre: `JUGADOR${i} A.`, recibido: Date.now(), fuente: "test" });
   assert.equal(res.nuevo && res.recargaId, r, `la recarga de j${i} se acredita sola`);
   assert.equal(saldo(id), 5000);
@@ -45,13 +45,13 @@ for (const [i, id] of jugadores.entries()) {
 // Duplicado: el mismo id externo no acredita dos veces.
 assert.equal(R.ingresarPago({ externoId: "p0", monto: 5000, nombre: "JUGADOR0 A.", recibido: Date.now(), fuente: "test" }).nuevo, false);
 // Ventana de 3 minutos: no cuenta un Yape anterior a pulsar ni uno muy tardío.
-const rTarde = R.abrirRecarga(jugadores[0]);
+const rTarde = R.abrirRecarga(jugadores[0], 1000);
 const inicio = R.recarga(rTarde)!.inicio;
 const antes = R.ingresarPago({ externoId: "previo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio - 5_000, fuente: "test" });
 assert.equal(antes.nuevo && antes.recargaId, null, "un Yape anterior a la recarga no cuenta");
-const tarde = R.ingresarPago({ externoId: "tarde", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 90_000 + 21_000, fuente: "test" });
+const tarde = R.ingresarPago({ externoId: "tarde", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + R.TURNO_MS + 21_000, fuente: "test" });
 assert.equal(tarde.nuevo && tarde.recargaId, null, "pasado el turno + 20 s de gracia no cuenta");
-const justo = R.ingresarPago({ externoId: "justo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + 90_000 + 10_000, fuente: "test" });
+const justo = R.ingresarPago({ externoId: "justo", monto: 1000, nombre: "Jugador0 Apellido0", recibido: inicio + R.TURNO_MS + 10_000, fuente: "test" });
 assert.equal(justo.nuevo && justo.recargaId, rTarde, "dentro de la gracia sí cuenta");
 assert.equal(saldo(jugadores[0]), 6000);
 
@@ -63,8 +63,8 @@ const pYapi = Y.pagoDesdeYapi({ deliveredAt: new Date().toISOString(), notificat
 const pYapi2 = Y.pagoDesdeYapi({ deliveredAt: new Date().toISOString(), notification: { id: "n2", title: "Confirmación de Pago", description: "Yape! Rosa Diaz te envió un pago por S/ 7.50" } });
 assert.equal(pYapi?.monto, 750);
 assert.equal(pYapi?.externoId, pYapi2?.externoId, "la misma notificación repetida no se cuenta dos veces");
-// Nombre que no cuadra: queda libre y el usuario lo reclama (sin captura).
-const rj1 = R.abrirRecarga(jugadores[1]);
+// Monto que no cuadra: queda libre y el usuario lo reclama (sin captura).
+const rj1 = R.abrirRecarga(jugadores[1], 500);
 const libre = R.ingresarPago({ externoId: "ajeno", monto: 700, nombre: "Maria Lopez", recibido: Date.now(), fuente: "test" });
 assert.equal(libre.nuevo && libre.recargaId, null);
 R.reclamarPago(rj1, jugadores[1], libre.nuevo ? libre.pagoId : 0);
@@ -249,7 +249,7 @@ assert.equal(saldo(jugadores[0]), so3);
 
 // Deudas: se retiene lo que haya y lo que entre después, y bloquea hasta saldarla.
 const deudor = nuevo("moroso", "Moroso Perez");
-R.abrirRecarga(deudor);
+R.abrirRecarga(deudor, 300);
 R.ingresarPago({ externoId: "moroso-1", monto: 300, nombre: "Moroso Perez", recibido: Date.now(), fuente: "test" });
 assert.equal(saldo(deudor), 300);
 const sAcreedor = saldo(jugadores[0]);
@@ -260,7 +260,7 @@ assert.equal(Bi.deudaPendiente(deudor), 700);
 const tdeuda = T.crearTorneo({ organizadorId: jugadores[0], nombre: "Gratis", descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
 assert.throws(() => T.crearEquipo(tdeuda, deudor, "Morosos"), /deuda de S\/ 7.00/);
 assert.throws(() => Bi.pedirRetiro(deudor, 100, "987654321"), /deuda/);
-R.abrirRecarga(deudor);
+R.abrirRecarga(deudor, 1000);
 R.ingresarPago({ externoId: "moroso-2", monto: 1000, nombre: "Moroso Perez", recibido: Date.now(), fuente: "test" });
 assert.equal(saldo(deudor), 300, "de 10 soles, 7 pagan la deuda");
 assert.equal(Bi.deudaPendiente(deudor), 0);
@@ -277,17 +277,17 @@ assert.equal(total(), dinero0 - 100 + 1300);
 
 // Con el turno exclusivo basta una palabra entera en común con quien lo tiene.
 const solo1 = nuevo("solo1", "Kevin Ramos Lazo");
-const rs = R.abrirRecarga(solo1);
+const rs = R.abrirRecarga(solo1, 200);
 const ps = R.ingresarPago({ externoId: "solo-1", monto: 200, nombre: "Kevin Tor*", recibido: Date.now(), fuente: "test" });
-assert.equal(ps.nuevo && ps.recargaId, rs, "quien tiene el turno y comparte «Kevin»");
-const rs2 = R.abrirRecarga(solo1);
+assert.equal(ps.nuevo && ps.recargaId, rs, "monto exacto");
+const rs2 = R.abrirRecarga(solo1, 300);
 const ajeno = R.ingresarPago({ externoId: "ajeno-2", monto: 200, nombre: "Maria Lopez", recibido: Date.now(), fuente: "test" });
-assert.equal(ajeno.nuevo && ajeno.recargaId, null, "sin ninguna palabra en común no se acredita");
+assert.equal(ajeno.nuevo && ajeno.recargaId, null, "el monto no cuadra");
 R.cancelarRecarga(rs2, solo1);
 
 // Reclamo con la recarga ya vencida: vale si el Yape llegó dentro de la ventana.
 const tardio = nuevo("tardio", "Pedro Tardio");
-const rv = R.abrirRecarga(tardio);
+const rv = R.abrirRecarga(tardio, 700);
 const iv = R.recarga(rv)!.inicio;
 const pv = R.ingresarPago({ externoId: "otra-cuenta", monto: 500, nombre: "Rosa M*", recibido: iv + 40_000, fuente: "test" });
 assert.equal(pv.nuevo && pv.recargaId, null);
@@ -301,7 +301,7 @@ const pa = nuevo("parcheA", "Pablo Ruiz");
 const pb = nuevo("parcheB", "Bruno Diaz");
 const pc = nuevo("parcheC", "Cesar Lima");
 for (const [k, u] of [pa, pb, pc].entries()) {
-  R.abrirRecarga(u);
+  R.abrirRecarga(u, 5000);
   R.ingresarPago({ externoId: `parche-${k}`, monto: 5000, nombre: ["Pablo Ruiz", "Bruno Diaz", "Cesar Lima"][k], recibido: Date.now(), fuente: "test" });
 }
 assert.throws(() => M.crearMercado({ creadorId: pa, titulo: "Tres bandos", opciones: [{ etiqueta: "x" }, { etiqueta: "y" }, { etiqueta: "z" }] }), /dos bandos/);
@@ -370,8 +370,8 @@ const avanzar = (ms: number) => {
 const qa = nuevo("colaA", "Ana Torres Vega");
 const qb = nuevo("colaB", "Beto Rios Paz");
 const qc = nuevo("colaC", "Carla Mendez Soto");
-const ra = R.abrirRecarga(qa);
-const rb = R.abrirRecarga(qb);
+const ra = R.abrirRecarga(qa, 500);
+const rb = R.abrirRecarga(qb, 300);
 assert.equal(R.recarga(ra)!.estado, "escuchando", "la primera tiene el turno");
 assert.equal(R.vistaRecarga(rb)!.estado, "en_cola");
 assert.equal(R.vistaRecarga(rb)!.delante, 1);
@@ -384,28 +384,28 @@ const ana1 = R.ingresarPago({ externoId: "ana-1", monto: 500, nombre: "Ana Tor*"
 assert.equal(ana1.nuevo && ana1.recargaId, ra);
 const turnoB = R.recarga(rb)!;
 assert.equal(turnoB.estado, "escuchando");
-assert.equal(turnoB.expira - turnoB.inicio, 90_000, "el turno dura 1 minuto y medio");
+assert.equal(turnoB.expira - turnoB.inicio, 30_000, "el turno dura 30 segundos");
 // Beto no paga: el turno vence pasado 1:30 + 20 s de gracia.
-avanzar(90_000 + 19_000);
+avanzar(R.TURNO_MS + 19_000);
 assert.equal(R.recarga(rb)!.estado, "escuchando", "durante la gracia sigue reservado");
 avanzar(2_000);
 assert.equal(R.recarga(rb)!.estado, "vencida");
 // Vuelve a intentarlo enseguida: espera 1 minuto aunque no haya nadie.
-const rb2 = R.abrirRecarga(qb);
+const rb2 = R.abrirRecarga(qb, 300);
 assert.equal(R.recarga(rb2)!.estado, "en_cola", "penalizado");
 assert.ok(R.vistaRecarga(rb2)!.disponibleDesde > reloj);
 // Carla llega durante esa espera y recarga antes que él.
 avanzar(10_000);
-const rc = R.abrirRecarga(qc);
+const rc = R.abrirRecarga(qc, 500);
 assert.equal(R.recarga(rc)!.estado, "escuchando", "quien llega durante la penalización va primero");
 R.cancelarRecarga(rc, qc);
 assert.equal(R.recarga(rb2)!.estado, "en_cola", "el turno libre no se da antes de cumplir el minuto");
 avanzar(51_000);
 assert.equal(R.recarga(rb2)!.estado, "escuchando", "pasado el minuto empieza su turno");
 // Vuelve a fallar: otra vez 1 minuto.
-avanzar(111_000);
+avanzar(R.TURNO_MS + 21_000);
 assert.equal(R.recarga(rb2)!.estado, "vencida");
-const rb3 = R.abrirRecarga(qb);
+const rb3 = R.abrirRecarga(qb, 400);
 assert.equal(R.recarga(rb3)!.estado, "en_cola");
 avanzar(61_000);
 const turnoB3 = R.recarga(rb3)!;
@@ -414,24 +414,38 @@ assert.equal(turnoB3.estado, "escuchando");
 avanzar(20_000);
 const beto2 = R.ingresarPago({ externoId: "beto-2", monto: 400, nombre: "BETO RIOS PAZ", recibido: reloj, fuente: "test" });
 assert.equal(beto2.nuevo && beto2.recargaId, rb3);
-const rb4 = R.abrirRecarga(qb);
+const rb4 = R.abrirRecarga(qb, 400);
 assert.equal(R.recarga(rb4)!.estado, "escuchando", "tras recargar bien no hay espera");
 R.cancelarRecarga(rb4, qb);
 // Cancelar el propio turno también penaliza, pero pasados 10 minutos se olvida.
 avanzar(10 * 60_000 + 1_000);
-const rb5 = R.abrirRecarga(qb);
+const rb5 = R.abrirRecarga(qb, 400);
 assert.equal(R.recarga(rb5)!.estado, "escuchando", "fallo de hace más de 10 minutos");
 // Quien deja la pantalla abierta conserva su sitio; quien la cierra 2 minutos lo pierde.
-const rc2 = R.abrirRecarga(qc);
-const rd = R.abrirRecarga(qa);
+const rc2 = R.abrirRecarga(qc, 500);
+const rd = R.abrirRecarga(qa, 500);
 assert.deepEqual([R.recarga(rc2)!.estado, R.recarga(rd)!.estado], ["en_cola", "en_cola"]);
 assert.equal(R.vistaRecarga(rd)!.delante, 2, "Beto con turno y Carla esperando");
 avanzar(60_000);
-R.marcarVisto(rc2);
-avanzar(61_000);
 assert.equal(R.recarga(rb5)!.estado, "vencida");
 assert.equal(R.recarga(rc2)!.estado, "escuchando", "Carla siguió en la pantalla y le tocó");
+assert.equal(R.recarga(rd)!.estado, "en_cola");
+avanzar(61_000);
 assert.equal(R.recarga(rd)!.estado, "cancelada", "Ana cerró la pantalla y salió de la cola");
+// Monto declarado: se acredita por el monto aunque el nombre no se parezca.
+db().prepare("UPDATE recargas SET estado = 'cancelada' WHERE estado IN ('en_cola', 'escuchando')").run();
+avanzar(11 * 60_000);
+const rm = R.abrirRecarga(qa, 1250);
+assert.equal(R.vistaRecarga(rm)!.montoEsperado, 1250);
+const otro = R.ingresarPago({ externoId: "monto-mal", monto: 1000, nombre: "Rosa Quispe", recibido: reloj, fuente: "test" });
+assert.equal(otro.nuevo && otro.recargaId, null, "ni monto ni nombre: no es suyo");
+const bien = R.ingresarPago({ externoId: "monto-bien", monto: 1250, nombre: "Rosa Quispe", recibido: reloj, fuente: "test" });
+assert.equal(bien.nuevo && bien.recargaId, rm, "monto exacto: suyo aunque yapee otra persona");
+const rm2 = R.abrirRecarga(qa, 800);
+const pornombre = R.ingresarPago({ externoId: "nombre-ana", monto: 500, nombre: "Ana T. Vega", recibido: reloj, fuente: "test" });
+assert.equal(pornombre.nuevo && pornombre.recargaId, null, "el monto siempre debe cuadrar, aunque el nombre sí");
+R.cancelarRecarga(rm2, qa);
+assert.throws(() => R.abrirRecarga(qa, 50), /al menos S\/ 1.00/);
 R.fijarRelojParaPruebas(() => Date.now());
 
 // Saldo insuficiente.

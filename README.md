@@ -45,8 +45,9 @@ El primer usuario que se registra es admin. Para nombrar a otro:
 ## Recargas con Yape
 
 1. «Recargar» abre una pantalla de preparación (abrir Yape, tener el número y el
-   monto listos). Al pulsar **«Iniciar recarga»** entra en la **cola**. Solo una persona recarga a
-   la vez: cuando le toca, tiene un **turno exclusivo de 1 minuto y medio** (más
+   monto listos). El usuario escribe **el monto que va a yapear** y, al pulsar
+   **«Iniciar recarga»**, entra en la **cola**. Solo una persona recarga a
+   la vez: cuando le toca, tiene un **turno exclusivo de 30 segundos** (más
    20 s de gracia para que la notificación llegue) y solo cuentan los Yapes que
    llegan durante su turno. No hace falta subir captura.
 2. El turno termina al acreditarse el Yape, al pulsar «Es mío», al cancelar o al
@@ -58,10 +59,10 @@ El primer usuario que se registra es admin. Para nombrar a otro:
    falla, hasta que recargue bien.
 4. El observador, [yapi](https://github.com/darwinva97/yapi), lee la notificación
    de Yape en el celular del pozo y nos la reenvía.
-5. Se acredita solo si el nombre del pago comparte una palabra entera y otra más
-   (entera o recortada por Yape, como «R.» o «Con*») con el «nombre en Yape» de
-   quien tiene el turno, o al menos una palabra entera, ya que es el único
-   recargando. Si no, el usuario pulsa «Es mío» y el admin lo confirma.
+5. **El monto siempre tiene que cuadrar**: se acredita solo el Yape que llega
+   durante el turno por el monto exacto declarado, venga de la cuenta que venga
+   (el nombre solo desempata). Si no cuadra, el usuario pulsa «Es mío» y el admin
+   lo revisa, con el aviso de que el monto no coincide.
 
 ### Conectar yapi
 

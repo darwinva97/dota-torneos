@@ -10,9 +10,16 @@ import * as R from "@/lib/yape/recargas";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
 
-export async function accionAbrirRecarga() {
+export async function accionAbrirRecarga(_: Estado, fd: FormData): Promise<Estado> {
   const u = await exigirUsuario();
-  const id = R.abrirRecarga(u.id);
+  let id: number;
+  try {
+    const monto = leerSoles(fd.get("monto"));
+    exigir(monto, "Escribe cuánto vas a yapear, por ejemplo 10 o 7.50.");
+    id = R.abrirRecarga(u.id, monto);
+  } catch (e) {
+    return aEstado(e);
+  }
   redirect(`/billetera/recargar?r=${id}`);
 }
 

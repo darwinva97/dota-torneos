@@ -7,14 +7,14 @@ import { emitir } from "./bus";
 
 // Flujo de recarga, con un solo turno a la vez:
 //  1. El usuario pulsa «Recargar» y entra en la cola («en_cola»).
-//  2. Cuando nadie más tiene el turno, empieza el suyo («escuchando»): 1 minuto
-//     y medio en el que es el único que puede recargar. Así cualquier Yape que
+//  2. Cuando nadie más tiene el turno, empieza el suyo («escuchando»): 30
+//     segundos en los que es el único que puede recargar. Así cualquier Yape que
 //     llegue en ese rato es casi seguro suyo.
 //  3. El observador (yapi, que lee las notificaciones de Yape en el celular del
 //     pozo) reporta cada pago con monto y nombre → ingresarPago.
-//  4. Se acredita solo si el nombre del pago coincide con el «nombre en Yape» de
-//     quien tiene el turno (ver elegirCandidata). Si no, el usuario puede decir
-//     «es mío» y un admin lo confirma.
+//  4. Se acredita solo si llega por el monto exacto que dijo que iba a yapear
+//     (ver elegirCandidata). Si no, el usuario puede decir «es mío» y un admin
+//     lo confirma.
 //  5. El turno termina al acreditarse, al reclamar, al cancelar o al vencer, y
 //     empieza el del siguiente en la cola.
 //
@@ -22,7 +22,7 @@ import { emitir } from "./bus";
 // vuelve a intentarlo en los 10 minutos siguientes, su turno no puede empezar
 // hasta pasado 1 minuto. Si en ese minuto llega otra persona, va primero.
 
-export const TURNO_MS = 90 * 1000;
+export const TURNO_MS = 30 * 1000;
 // Un Yape hecho en el último segundo tarda unos segundos en notificarse y en
 // pasar por yapi; el turno sigue reservado durante esta gracia tras el plazo.
 const GRACIA_MS = 20 * 1000;
@@ -52,6 +52,7 @@ export type Recarga = {
   disponible_desde: number;
   fin: number;
   visto: number;
+  monto_esperado: number;
   nota: string;
   creado: string;
 };
@@ -151,6 +152,8 @@ export function pagosLibresDeVentana(r: Recarga) {
 export type VistaRecarga = {
   estado: EstadoRecarga;
   monto: number | null;
+  /** Lo que dijo que iba a yapear (0 si no lo dijo). */
+  montoEsperado: number;
   nota: string;
   inicio: number;
   expira: number;
@@ -180,6 +183,7 @@ export function vistaRecarga(id: number): VistaRecarga | null {
   return {
     estado: r.estado,
     monto: r.monto,
+    montoEsperado: r.monto_esperado,
     nota: r.nota,
     inicio: r.inicio,
     expira: r.expira,
@@ -193,11 +197,18 @@ export function colaActual() {
   avanzarCola();
   return db()
     .prepare(
-      `SELECT r.id, r.estado, r.expira, r.disponible_desde, u.usuario FROM recargas r
+      `SELECT r.id, r.estado, r.expira, r.disponible_desde, r.monto_esperado, u.usuario FROM recargas r
        JOIN usuarios u ON u.id = r.usuario_id
        WHERE r.estado IN ('escuchando', 'en_cola') ORDER BY r.estado = 'en_cola', r.id`,
     )
-    .all() as { id: number; estado: string; expira: number; disponible_desde: number; usuario: string }[];
+    .all() as {
+    id: number;
+    estado: string;
+    expira: number;
+    disponible_desde: number;
+    monto_esperado: number;
+    usuario: string;
+  }[];
 }
 
 function turnoActivo() {
@@ -280,15 +291,17 @@ function penalizacion(usuarioId: number) {
   return fallo && reloj() - ultima.fin < MEMORIA_FALLOS_MS ? PENALIZACION_MS : 0;
 }
 
-export function abrirRecarga(usuarioId: number) {
+export function abrirRecarga(usuarioId: number, montoEsperado: number) {
+  exigir(montoEsperado >= 100, "Recarga al menos S/ 1.00.");
   const abierta = recargaAbiertaDe(usuarioId);
   if (abierta) return abierta.id;
   const ahora = reloj();
   const r = db()
     .prepare(
-      "INSERT INTO recargas (usuario_id, estado, inicio, expira, disponible_desde, visto) VALUES (?, 'en_cola', 0, 0, ?, ?)",
+      `INSERT INTO recargas (usuario_id, estado, inicio, expira, disponible_desde, visto, monto_esperado)
+       VALUES (?, 'en_cola', 0, 0, ?, ?, ?)`,
     )
-    .run(usuarioId, ahora + penalizacion(usuarioId), ahora);
+    .run(usuarioId, ahora + penalizacion(usuarioId), ahora, montoEsperado);
   avanzarCola();
   return Number(r.lastInsertRowid);
 }
@@ -366,28 +379,26 @@ function intentarEmparejar(pago: PagoYape): number | null {
        WHERE r.estado = 'escuchando' AND r.inicio <= ? AND r.expira + ? >= ?`,
     )
     .all(pago.recibido, GRACIA_MS, pago.recibido) as (Recarga & { nombre_yape: string })[];
-  const elegida = elegirCandidata(candidatas, pago.nombre);
+  const elegida = elegirCandidata(candidatas, pago);
   if (!elegida) return null;
   acreditar(elegida.id, pago.id);
   return elegida.id;
 }
 
-// 1. Si el nombre coincide claramente con una sola persona, es suya.
-// 2. Si coincide con varias, gana la que más palabras comparte; con empate no
-//    adivinamos y lo resuelve el admin.
-// 3. Si nadie coincide claramente pero solo hay una persona con turno y
-//    comparte al menos una palabra entera, también es suya. El Yape
-//    del pozo recibe otros pagos, así que sin ninguna palabra en común no se
-//    acredita.
-function elegirCandidata<T extends { nombre_yape: string }>(candidatas: T[], nombre: string) {
-  const puntuadas = candidatas.map((c) => ({ c, ...puntuarNombre(c.nombre_yape, nombre) }));
-  const claras = puntuadas
-    .filter((x) => nombreCoincide(x.c.nombre_yape, nombre))
+// El monto siempre tiene que cuadrar: solo es suyo un Yape por el monto exacto
+// que dijo al empezar, venga de la cuenta que venga. Si coincidiera con varios
+// turnos (no debería: el turno es exclusivo), desempata el nombre; si aun así
+// no hay uno claro, lo resuelve el admin.
+function elegirCandidata<T extends { nombre_yape: string; monto_esperado: number }>(
+  candidatas: T[],
+  pago: { nombre: string; monto: number },
+) {
+  const porMonto = candidatas.filter((c) => c.monto_esperado === pago.monto);
+  if (porMonto.length <= 1) return porMonto[0] ?? null;
+  const puntuadas = porMonto
+    .map((c) => ({ c, ...puntuarNombre(c.nombre_yape, pago.nombre) }))
     .sort((x, y) => y.puntos - x.puntos);
-  if (claras.length === 1) return claras[0].c;
-  if (claras.length > 1) return claras[0].puntos > claras[1].puntos ? claras[0].c : null;
-  if (puntuadas.length === 1 && puntuadas[0].enteras >= 1) return puntuadas[0].c;
-  return null;
+  return puntuadas[0].puntos > puntuadas[1].puntos ? puntuadas[0].c : null;
 }
 
 export function acreditar(recargaId: number, pagoId: number) {

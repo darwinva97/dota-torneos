@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { Smartphone, Timer, UserCheck, Wallet } from "lucide-react";
 import { Copiar } from "@/components/copiar";
+import { Formulario, Enviar } from "@/components/formulario";
 import { accionAbrirRecarga } from "../../acciones/billetera";
 
-// Antes de empezar: el turno dura 1 minuto y medio, así que el usuario se
-// prepara primero y el reloj solo arranca cuando pulsa «Iniciar recarga».
+// Antes de empezar: el turno dura 30 segundos, así que el usuario se prepara
+// primero, dice cuánto va a yapear y el reloj solo arranca cuando pulsa
+// «Iniciar recarga».
 export function Preparacion({
   nombreYape,
   numero,
@@ -45,8 +47,8 @@ export function Preparacion({
       Icono: Wallet,
       texto: (
         <>
-          Decide cuánto vas a recargar y yapea desde tu cuenta a nombre de{" "}
-          <strong className="text-pergamino">{nombreYape}</strong>. Así lo reconocemos solos.
+          Escribe abajo cuánto vas a yapear: lo reconocemos por ese monto. Da igual desde qué cuenta yapees, aunque si
+          es la tuya (<span className="text-pergamino">{nombreYape}</span>) mejor.
         </>
       ),
     },
@@ -55,8 +57,8 @@ export function Preparacion({
       texto: (
         <>
           Cuando pulses <strong className="text-pergamino">Iniciar recarga</strong> empieza tu turno de{" "}
-          <strong className="text-pergamino">1 minuto y medio</strong>: yapea en cuanto aparezca la cuenta atrás. Si se
-          te pasa el tiempo, tu próximo intento esperará 1 minuto.
+          <strong className="text-pergamino">30 segundos</strong>: yapea en cuanto aparezca la cuenta atrás. Si se te
+          pasa el tiempo, tu próximo intento esperará 1 minuto.
         </>
       ),
     },
@@ -83,14 +85,25 @@ export function Preparacion({
           cola y tu turno empezará cuando te toque.
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-4">
-        <form action={accionAbrirRecarga}>
-          <button className="boton px-8 py-4 text-xl">Iniciar recarga</button>
-        </form>
-        <Link href="/billetera" className="text-niebla underline underline-offset-4 hover:text-pergamino">
+      <Formulario accion={accionAbrirRecarga} className="flex flex-wrap items-end gap-4">
+        <label className="block">
+          <span className="etiqueta">Monto que vas a yapear</span>
+          <span className="flex items-center rounded-md border border-borde bg-hondo focus-within:border-oro focus-within:shadow-[0_0_0_3px_rgb(242_182_50/0.15)]">
+            <span className="cifra pl-3 text-xl text-niebla">S/</span>
+            <input
+              name="monto"
+              required
+              inputMode="decimal"
+              placeholder="10"
+              className="cifra w-36 bg-transparent px-2 py-3 text-2xl focus:outline-none"
+            />
+          </span>
+        </label>
+        <Enviar className="px-8 py-4 text-xl">Iniciar recarga</Enviar>
+        <Link href="/billetera" className="pb-4 text-niebla underline underline-offset-4 hover:text-pergamino">
           Ahora no
         </Link>
-      </div>
+      </Formulario>
     </div>
   );
 }
