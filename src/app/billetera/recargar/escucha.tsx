@@ -11,18 +11,20 @@ type EstadoVivo = { estado: string; monto: number | null; nota: string };
 
 export function Escucha({
   recarga,
+  pagosIniciales,
   nombreYape,
   numero,
   titular,
 }: {
   recarga: { id: number; estado: string; expira: number; monto: number | null; nota: string; conCaptura: boolean };
+  pagosIniciales: Pago[];
   nombreYape: string;
   numero: string;
   titular: string;
 }) {
   const router = useRouter();
   const [vivo, setVivo] = useState<EstadoVivo>(recarga);
-  const [pagos, setPagos] = useState<Pago[]>([]);
+  const [pagos, setPagos] = useState<Pago[]>(pagosIniciales);
   const [conectado, setConectado] = useState(false);
   const [captura, setCaptura] = useState<{ subiendo: boolean; url?: string; error?: string; lista: boolean }>({
     subiendo: false,
@@ -57,7 +59,8 @@ export function Escucha({
     const res = await fetch(`/api/recargas/${recarga.id}/comprobante`, { method: "POST", body: fd });
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) {
-      setCaptura((c) => ({ ...c, subiendo: false, error: json.error ?? "No se pudo subir la captura." }));
+      const error = json.error ?? `No se pudo subir la captura (error ${res.status}). Prueba con otra imagen.`;
+      setCaptura((c) => ({ ...c, subiendo: false, error }));
       return;
     }
     setCaptura({ subiendo: false, lista: true, url: URL.createObjectURL(archivo) });
@@ -84,7 +87,9 @@ export function Escucha({
     );
   }
 
-  if (vivo.estado !== "escuchando") {
+  const vencidaConPagos = vivo.estado === "vencida" && pagos.length > 0;
+
+  if (vivo.estado !== "escuchando" && !vencidaConPagos) {
     const textos: Record<string, string> = {
       revision: "Le avisamos al admin. En cuanto compare tu captura con el Yape recibido, se suma a tu saldo.",
       vencida: "Pasaron los 3 minutos sin que llegara tu Yape. Si yapeaste a tiempo y no se acreditó, avísale al admin con tu captura.",
@@ -115,6 +120,15 @@ export function Escucha({
       </header>
 
       <ol className="space-y-5">
+        {vencidaConPagos ? (
+          <li role="alert" className="rounded-lg border border-oro/50 bg-oro/10 p-5">
+            <h2 className="text-2xl">Se acabaron los 3 minutos</h2>
+            <p className="mt-1 text-niebla">
+              Llegó un Yape durante tu recarga pero no lo reconocimos solos. Si es tuyo, sube la captura y pulsa «Es
+              mío»: el admin lo revisa y te lo acredita.
+            </p>
+          </li>
+        ) : (
         <li className="rounded-lg border border-yape/70 bg-yape/15 p-5">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-2xl">Yapea al pozo</h2>
@@ -146,6 +160,7 @@ export function Escucha({
             no podremos reconocerlo solos y tendrá que revisarlo el admin.
           </p>
         </li>
+        )}
 
         <li className="panel p-5">
           <h2 className="text-2xl">Sube la captura</h2>
@@ -157,7 +172,7 @@ export function Escucha({
               {captura.lista ? "Cambiar captura" : "Elegir captura"}
               <input
                 type="file"
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/*"
                 className="sr-only"
                 disabled={captura.subiendo}
                 onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])}

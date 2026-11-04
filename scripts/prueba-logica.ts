@@ -26,6 +26,11 @@ assert.ok(!R.nombreCoincide("Juan Carlos Pérez Rojas", "Juan Quispe"));
 assert.ok(R.nombreCoincide("Juan Carlos Pérez Rojas", "Carlos Perez")); // segundo nombre + apellido
 assert.ok(!R.nombreCoincide("Juan Carlos Pérez Rojas", "Pedro Perez"));
 assert.ok(!R.nombreCoincide("Juan Carlos Pérez Rojas", "Juan"));
+// Yape oculta el apellido con * desde noviembre de 2026 (caso real de Kanay).
+assert.ok(R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Con*"));
+assert.ok(!R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Per*"));
+assert.ok(!R.nombreCoincide("Alain Jherimy Conislla Alamo", "Alain Co"), "sin * no se toma como prefijo");
+assert.ok(R.nombreCoincide("Darwin Vilcachagua Ayala", "DARWIN STALIN VILCACHAGUA"));
 
 // --- Recargas ---
 const jugadores = Array.from({ length: 6 }, (_, i) => nuevo(`j${i}`, `Jugador${i} Apellido${i}`));
@@ -269,6 +274,18 @@ assert.equal(Bi.deudaPendiente(deudor), 0);
 assert.throws(() => Bi.crearDeuda({ deudorId: deudor, acreedorId: deudor, monto: 100, motivo: "Prueba", creadoPor: jugadores[0] }), /sí mismo/);
 // Las deudas mueven dinero entre jugadores, no lo crean ni lo destruyen.
 assert.equal(total(), dinero0 - 100 + 1300);
+
+// Reclamo con la recarga ya vencida: vale si el Yape llegó dentro de la ventana.
+const tardio = nuevo("tardio", "Pedro Tardio");
+const rv = R.abrirRecarga(tardio);
+const iv = R.recarga(rv)!.inicio;
+const pv = R.ingresarPago({ externoId: "otra-cuenta", monto: 500, nombre: "Rosa M*", recibido: iv + 40_000, fuente: "test" });
+assert.equal(pv.nuevo && pv.recargaId, null);
+db().prepare("UPDATE recargas SET estado = 'vencida' WHERE id = ?").run(rv);
+assert.equal(R.pagosLibresDeVentana(R.recarga(rv)!).length, 1);
+R.guardarComprobante(rv, tardio, "c.png");
+R.reclamarPago(rv, tardio, pv.nuevo ? pv.pagoId : 0);
+assert.equal(R.recarga(rv)!.estado, "revision");
 
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);

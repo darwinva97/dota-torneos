@@ -49,27 +49,35 @@ export type PagoYape = {
 
 // --- Comparación de nombres ---
 
-function tokens(nombre: string) {
+// Palabra del nombre. `prefijo` indica que Yape la recortó: «R.» (inicial) o
+// «Con*» (desde noviembre de 2026 Yape oculta el resto del apellido con un *).
+type Palabra = { texto: string; prefijo: boolean };
+
+function palabras(nombre: string): Palabra[] {
   return nombre
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
-    .replace(/[^A-Z\s]/g, " ")
     .split(/\s+/)
-    .filter(Boolean);
+    .map((w) => ({ texto: w.replace(/[^A-Z]/g, ""), prefijo: /[*.]$/.test(w) }))
+    .filter((w) => w.texto);
 }
 
-// Yape suele mostrar nombres recortados («Juan C. Perez R.»). Damos por buena
-// la coincidencia si el primer nombre es igual y al menos otra palabra (o su
-// inicial) aparece en el nombre registrado.
+// Damos por buena la coincidencia si el primer nombre es igual y al menos otra
+// palabra aparece en el nombre registrado, entera o como comienzo si Yape la
+// recortó: «Juan C. Perez R.», «Alain Con*», «DARWIN STALIN VILCACHAGUA».
 export function nombreCoincide(registrado: string, delPago: string) {
-  const a = tokens(registrado);
-  const b = tokens(delPago);
+  const a = palabras(registrado).map((w) => w.texto);
+  const b = palabras(delPago);
   if (a.length === 0 || b.length === 0) return false;
-  if (!a.includes(b[0])) return false;
+  const primero = b[0].texto;
+  if (!a.includes(primero)) return false;
   if (b.length === 1) return a.length === 1;
-  const resto = b.slice(1);
-  return resto.some((t) => a.some((x) => x !== b[0] && (x === t || (t.length === 1 && x.startsWith(t)))));
+  return b
+    .slice(1)
+    .some((t) =>
+      a.some((x) => x !== primero && (x === t.texto || ((t.prefijo || t.texto.length === 1) && x.startsWith(t.texto)))),
+    );
 }
 
 // --- Lectura ---
@@ -91,6 +99,15 @@ export function recargasDe(usuarioId: number) {
   return db()
     .prepare("SELECT * FROM recargas WHERE usuario_id = ? ORDER BY id DESC LIMIT 10")
     .all(usuarioId) as Recarga[];
+}
+
+// Pagos sin dueño que llegaron dentro de la ventana de una recarga.
+export function pagosLibresDeVentana(r: Recarga) {
+  return db()
+    .prepare(
+      "SELECT * FROM pagos_yape WHERE estado = 'libre' AND recibido BETWEEN ? AND ? ORDER BY recibido DESC LIMIT 10",
+    )
+    .all(r.inicio, r.expira + GRACIA_MS) as PagoYape[];
 }
 
 // Pagos sin dueño recientes, para enseñarlos a quien está escuchando.
@@ -139,11 +156,14 @@ export function reclamarPago(recargaId: number, usuarioId: number, pagoId: numbe
   transaccion(() => {
     const r = recarga(recargaId);
     exigir(r && r.usuario_id === usuarioId, "Esa recarga no es tuya.");
-    exigir(r.estado === "escuchando", "Esta recarga ya no está activa.");
+    // También vale con la recarga vencida: el Yape pudo llegar a tiempo y no
+    // reconocerse solo, y el plazo se acabó mientras subía la captura.
+    exigir(r.estado === "escuchando" || r.estado === "vencida", "Esta recarga ya no está activa.");
     exigir(r.comprobante, "Sube primero la captura de tu Yape: el admin la necesita para confirmarlo.");
     const p = db().prepare("SELECT * FROM pagos_yape WHERE id = ?").get(pagoId) as PagoYape | undefined;
     exigir(p && p.estado === "libre", "Ese pago ya fue asignado.");
     exigir(p.recibido >= r.inicio, "Ese Yape llegó antes de que empezaras la recarga.");
+    exigir(p.recibido <= r.expira + GRACIA_MS, "Ese Yape llegó después de los 3 minutos de la recarga.");
     db()
       .prepare("UPDATE recargas SET estado = 'revision', pago_id = ?, monto = ?, nota = ? WHERE id = ?")
       .run(pagoId, p.monto, `Reclamado: Yape de ${p.nombre}`, recargaId);
