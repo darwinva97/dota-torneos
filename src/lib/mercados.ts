@@ -331,6 +331,14 @@ export function resolverPorEquipo(filtro: { partidaId: number } | { torneoCampeo
   }
 }
 
+// Tablas en una partida de liga o suizo: sus apuestas se devuelven.
+export function empatarPorPartida(partidaId: number) {
+  const ligadas = db()
+    .prepare("SELECT id FROM mercados WHERE partida_id = ? AND estado IN ('abierto','cerrado')")
+    .all(partidaId) as { id: number }[];
+  for (const m of ligadas) anularMercado(m.id, "Tablas, se devuelve");
+}
+
 export function cerrarPorPartida(partidaId: number) {
   exigirParchadasDePartida(partidaId);
   db()

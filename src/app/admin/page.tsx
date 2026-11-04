@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { ArrowUpFromLine, Inbox, ScanSearch } from "lucide-react";
+import { ArrowUpFromLine, Inbox, ScanSearch, Users } from "lucide-react";
 import { exigirAdmin } from "@/lib/sesion";
 import {
   listarDeudas,
@@ -63,6 +63,9 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
 
   return (
     <div className="space-y-12">
+      <Link href="/admin/usuarios" className="boton-sobrio -mt-4">
+        <Users className="size-5" aria-hidden /> Gestionar usuarios y saldos
+      </Link>
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat etiqueta="Saldo de los usuarios" tono="text-oro">
           {soles(enCirculacion)}
@@ -262,7 +265,9 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
               {usuarios.map((u) => (
                 <li key={u.id} className="flex items-center justify-between gap-3 px-4 py-3">
                   <span>
-                    <span className="font-medium">{u.usuario}</span>
+                    <Link href={`/admin/usuarios/${u.id}`} className="font-medium hover:text-oro">
+                      {u.usuario}
+                    </Link>
                     {u.es_admin ? <span className="text-niebla"> (admin)</span> : null}
                     <span className="block text-sm text-niebla">{u.nombre_yape}</span>
                   </span>

@@ -18,6 +18,7 @@ const FILTROS: { valor?: Grupo; texto: string }[] = [
   { valor: "torneos", texto: "Torneos" },
   { valor: "apuestas", texto: "Apuestas" },
   { valor: "deudas", texto: "Deudas" },
+  { valor: "ajustes", texto: "Ajustes" },
 ];
 
 export default function Billetera({ searchParams }: PageProps<"/billetera">) {

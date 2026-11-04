@@ -3,8 +3,16 @@ import crypto from "node:crypto";
 import { db, transaccion } from "./db";
 import { exigir } from "./errores";
 import { exigirSinDeudas, mover } from "./billetera";
-import { soles } from "./dinero";
-import { anularMercado, cerrarPorPartida, exigirParchadasDePartida, resolverPorEquipo } from "./mercados";
+import {
+  anularMercado,
+  cerrarPorPartida,
+  empatarPorPartida,
+  exigirParchadasDePartida,
+  resolverPorEquipo,
+} from "./mercados";
+import { generarCuadro, type Lado, type Llave } from "./llaves";
+import { clasificacion, rondaSuiza, rondasLiga, type Juego as JuegoPuntos, type Resultado } from "./puntos";
+import { esLichess, problemaRitmoLichess, rondasSuizo, type Formato } from "./formatos";
 
 export type EstadoTorneo = "inscripciones" | "en_curso" | "finalizado" | "cancelado";
 export type Reparto = "ganador" | "70-30";
@@ -18,6 +26,17 @@ export type Torneo = {
   id: number;
   nombre: string;
   juego: Juego;
+  formato: Formato;
+  /** Mixto: cuántos equipos pasan del descarte a upper y lower. */
+  clasifican: number;
+  /** Suizo: número de rondas. */
+  rondas: number;
+  /** Arena en Lichess: minutos que dura. */
+  duracion: number;
+  lichess_id: string;
+  lichess_clave: string;
+  lichess_equipo: string;
+  lichess_sync: number;
   /** Solo en ajedrez: modalidad y ritmo, como «blitz 3+2». */
   ritmo: string;
   descripcion: string;
@@ -59,17 +78,28 @@ export type Equipo = {
     aporte: number;
     garantia: number;
     asistencia: Asistencia;
+    lichess_usuario: string;
+    lichess_inscrito: number;
   }[];
 };
 
 export type Partida = {
   id: number;
+  torneo_id: number;
+  llave: Llave | "RR" | "SW";
   ronda: number;
   pos: number;
   equipo_a: number | null;
   equipo_b: number | null;
+  lista_a: number;
+  lista_b: number;
   ganador: number | null;
+  resultado: Resultado | null;
   estado: "pendiente" | "en_juego" | "jugada" | "bye";
+  sig_ganador: number | null;
+  lado_ganador: Lado | null;
+  sig_perdedor: number | null;
+  lado_perdedor: Lado | null;
 };
 
 const SELECT_TORNEO = `
@@ -114,7 +144,8 @@ export function equiposDe(torneoId: number): Equipo[] {
     .all(torneoId) as Omit<Equipo, "integrantes">[];
   const integrantes = db()
     .prepare(
-      `SELECT i.equipo_id, i.usuario_id, u.usuario, u.nick_dota, i.aporte, i.garantia, i.asistencia
+      `SELECT i.equipo_id, i.usuario_id, u.usuario, u.nick_dota, i.aporte, i.garantia, i.asistencia,
+         u.lichess_usuario, i.lichess_inscrito
        FROM integrantes i JOIN usuarios u ON u.id = i.usuario_id
        WHERE i.torneo_id = ? ORDER BY i.creado`,
     )
@@ -124,7 +155,10 @@ export function equiposDe(torneoId: number): Equipo[] {
 
 export function partidasDe(torneoId: number) {
   return db()
-    .prepare("SELECT * FROM partidas WHERE torneo_id = ? ORDER BY ronda, pos")
+    .prepare(
+      `SELECT * FROM partidas WHERE torneo_id = ?
+       ORDER BY CASE llave WHEN 'Q' THEN 0 WHEN 'U' THEN 1 WHEN 'L' THEN 2 WHEN 'GF' THEN 3 ELSE 4 END, ronda, pos`,
+    )
     .all(torneoId) as Partida[];
 }
 
@@ -143,8 +177,33 @@ export function crearTorneo(d: {
   sumaRecaudado: boolean;
   juego?: Juego;
   ritmo?: string;
+  formato?: Formato;
+  clasifican?: number;
+  rondas?: number;
+  duracion?: number;
+  lichessEquipo?: string;
 }) {
   const juego = d.juego ?? "dota2";
+  const formato = d.formato ?? "eliminacion";
+  const validos: Record<Juego, Formato[]> = {
+    dota2: ["eliminacion", "doble", "mixto"],
+    ajedrez: ["eliminacion", "liga", "suizo", "lichess_arena", "lichess_suizo"],
+  };
+  exigir(validos[juego]?.includes(formato), "Elige un formato de torneo válido para ese juego.");
+  const clasifican = formato === "mixto" ? (d.clasifican ?? 8) : 0;
+  exigir(formato !== "mixto" || clasifican === 4 || clasifican === 8, "En el formato combinado pasan 4 u 8 equipos.");
+  const rondas = formato === "suizo" || formato === "lichess_suizo" ? (d.rondas ?? 0) : 0;
+  exigir(rondas >= 0 && rondas <= 15, "Un suizo tiene como mucho 15 rondas.");
+  const duracion = formato === "lichess_arena" ? (d.duracion ?? 60) : 0;
+  const lichessEquipo = formato === "lichess_suizo" ? (d.lichessEquipo ?? "").trim() : "";
+  if (esLichess(formato)) {
+    const problema = problemaRitmoLichess(formato, d.ritmo ?? "", duracion);
+    exigir(!problema, problema ?? "");
+  }
+  exigir(
+    formato !== "lichess_suizo" || /^[a-z0-9-]{2,}$/i.test(lichessEquipo),
+    "El suizo de Lichess necesita el id de un equipo de Lichess del que seas líder (lo que va tras lichess.org/team/).",
+  );
   exigir(juego === "dota2" || juego === "ajedrez", "Elige el juego.");
   // El ajedrez se juega uno contra uno.
   if (juego === "ajedrez") d.tamEquipo = 1;
@@ -159,14 +218,15 @@ export function crearTorneo(d: {
   exigir(d.entrada !== null && d.entrada >= 0, "Escribe cuánto pone cada jugador al pozo (puede ser 0).");
   exigir(d.garantia !== null && d.garantia >= 0, "Escribe la garantía en soles, o 0 si no hay garantía.");
   exigir(d.tamEquipo >= 1 && d.tamEquipo <= 5, "Los equipos son de 1 a 5 jugadores.");
-  exigir(d.maxEquipos >= 2 && d.maxEquipos <= 16, "El torneo admite de 2 a 16 equipos.");
+  exigir(d.maxEquipos >= 2 && d.maxEquipos <= 64, "El torneo admite de 2 a 64 equipos.");
   exigir(d.reparto === "ganador" || d.reparto === "70-30", "Elige cómo se reparte el pozo.");
   return transaccion(() => {
     const r = db()
       .prepare(
         `INSERT INTO torneos (nombre, descripcion, entrada, garantia, limite_llegada, tam_equipo, max_equipos,
-           reparto, organizador_id, fecha, premio_base, suma_recaudado, juego, ritmo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reparto, organizador_id, fecha, premio_base, suma_recaudado, juego, ritmo,
+           formato, clasifican, rondas, duracion, lichess_equipo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         d.nombre.trim(),
@@ -183,6 +243,11 @@ export function crearTorneo(d: {
         d.sumaRecaudado ? 1 : 0,
         juego,
         ritmo,
+        formato,
+        clasifican,
+        rondas,
+        duracion,
+        lichessEquipo,
       );
     // El premio base sale del saldo del organizador y queda reservado.
     if (d.premioBase! > 0) {
@@ -226,6 +291,10 @@ function exigirLibre(torneoId: number, usuarioId: number) {
 // liquida al sortear el cuadro según la asistencia.
 function pagarEntrada(t: Torneo, usuarioId: number, equipoId: number) {
   exigirSinDeudas(usuarioId);
+  if (esLichess(t.formato)) {
+    const u = db().prepare("SELECT lichess_usuario FROM usuarios WHERE id = ?").get(usuarioId) as { lichess_usuario: string };
+    exigir(u.lichess_usuario, "Este torneo se juega en Lichess: conecta tu cuenta de Lichess en Perfil para inscribirte.");
+  }
   if (t.entrada > 0) mover(usuarioId, -t.entrada, "inscripcion", `Entrada al pozo de ${t.nombre}`);
   if (t.garantia > 0) mover(usuarioId, -t.garantia, "garantia", `Garantía de puntualidad de ${t.nombre}`);
   db()
@@ -340,56 +409,116 @@ function liquidarGarantias(t: Torneo) {
   }
 }
 
-// Arma un cuadro de eliminación directa. Con n equipos el cuadro es de la
-// potencia de 2 siguiente (p); en la primera ronda el equipo i juega contra el
-// i + p/2, así los descansos (bye) nunca enfrentan a dos huecos.
+function barajar<T>(xs: T[]) {
+  const v = [...xs];
+  for (let i = v.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(i + 1);
+    [v[i], v[j]] = [v[j], v[i]];
+  }
+  return v;
+}
+
+// Comprobaciones comunes antes de cerrar inscripciones (también para Lichess,
+// que crea el torneo allí antes de pasar a «en curso»).
+export function prepararInicio(torneoId: number, usuarioId: number, esAdmin: boolean) {
+  const t = torneo(torneoId);
+  exigirOrganizador(t, usuarioId, esAdmin);
+  exigir(t.estado === "inscripciones", "El torneo ya empezó.");
+  exigir(equiposDe(torneoId).length >= 2, "Hacen falta al menos dos inscritos para empezar.");
+  const sinMarcar = db()
+    .prepare("SELECT COUNT(*) AS n FROM integrantes WHERE torneo_id = ? AND garantia > 0 AND asistencia IS NULL")
+    .get(torneoId) as { n: number };
+  exigir(
+    sinMarcar.n === 0,
+    `Falta marcar la asistencia de ${sinMarcar.n} ${sinMarcar.n === 1 ? "jugador" : "jugadores"} antes de sortear.`,
+  );
+  return t;
+}
+
+// Cierra inscripciones y arma el torneo según su formato. Los de Lichess se
+// inician con iniciarEnLichess (lib/lichess.ts), que llama a marcarEnCurso.
 export function iniciarTorneo(torneoId: number, usuarioId: number, esAdmin: boolean) {
   transaccion(() => {
-    const t = torneo(torneoId);
-    exigirOrganizador(t, usuarioId, esAdmin);
-    exigir(t.estado === "inscripciones", "El torneo ya empezó.");
-    const equipos = equiposDe(torneoId).map((e) => e.id);
-    exigir(equipos.length >= 2, "Hacen falta al menos dos equipos para empezar.");
-    liquidarGarantias(t);
-
-    for (let i = equipos.length - 1; i > 0; i--) {
-      const j = crypto.randomInt(i + 1);
-      [equipos[i], equipos[j]] = [equipos[j], equipos[i]];
+    const t = prepararInicio(torneoId, usuarioId, esAdmin);
+    exigir(!esLichess(t.formato), "Este torneo se juega en Lichess: se inicia desde allí.");
+    marcarEnCurso(t);
+    const equipos = barajar(equiposDe(torneoId).map((e) => e.id));
+    if (t.formato === "liga") {
+      rondasLiga(equipos).forEach((ronda, r) => guardarRonda(t.id, "RR", r + 1, ronda));
+    } else if (t.formato === "suizo") {
+      const rondas = t.rondas || rondasSuizo(equipos.length);
+      db().prepare("UPDATE torneos SET rondas = ? WHERE id = ?").run(rondas, t.id);
+      guardarRonda(t.id, "SW", 1, rondaSuiza(equipos, []));
+    } else {
+      crearCuadro(t, equipos);
     }
-    const p = 2 ** Math.ceil(Math.log2(equipos.length));
-    const rondas = Math.log2(p);
-    const ins = db().prepare(
-      "INSERT INTO partidas (torneo_id, ronda, pos, equipo_a, equipo_b, ganador, estado) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    );
-    for (let r = 1; r <= rondas; r++) {
-      for (let pos = 0; pos < p / 2 ** r; pos++) {
-        if (r === 1) {
-          const a = equipos[pos];
-          const b = equipos[pos + p / 2] ?? null;
-          ins.run(torneoId, r, pos, a, b, b === null ? a : null, b === null ? "bye" : "pendiente");
-        } else {
-          ins.run(torneoId, r, pos, null, null, null, "pendiente");
-        }
-      }
-    }
-    db().prepare("UPDATE torneos SET estado = 'en_curso' WHERE id = ?").run(torneoId);
-    for (const pt of partidasDe(torneoId)) if (pt.estado === "bye") avanzar(torneoId, pt, rondas);
   });
 }
 
-function avanzar(torneoId: number, pt: Partida, rondas: number) {
-  if (pt.ronda === rondas) return;
-  const lado = pt.pos % 2 === 0 ? "equipo_a" : "equipo_b";
-  db()
-    .prepare(`UPDATE partidas SET ${lado} = ? WHERE torneo_id = ? AND ronda = ? AND pos = ?`)
-    .run(pt.ganador, torneoId, pt.ronda + 1, Math.floor(pt.pos / 2));
+export function marcarEnCurso(t: Torneo) {
+  liquidarGarantias(t);
+  db().prepare("UPDATE torneos SET estado = 'en_curso' WHERE id = ?").run(t.id);
+}
+
+// --- Cuadros (eliminación, upper y lower, mixto) ---
+
+function crearCuadro(t: Torneo, equipos: number[]) {
+  const nodos = generarCuadro(t.formato as "eliminacion" | "doble" | "mixto", equipos, t.clasifican || 8);
+  const ids = new Map<string, number>();
+  const ins = db().prepare(
+    `INSERT INTO partidas (torneo_id, llave, ronda, pos, equipo_a, equipo_b, lista_a, lista_b)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const n of nodos) {
+    const lado = (h: (typeof n)["a"]) => (h === "espera" ? [null, 0] : [h.equipo, 1]);
+    const [a, la] = lado(n.a);
+    const [b, lb] = lado(n.b);
+    ids.set(n.clave, Number(ins.run(t.id, n.llave, n.ronda, n.pos, a, b, la, lb).lastInsertRowid));
+  }
+  const cruces = db().prepare(
+    "UPDATE partidas SET sig_ganador = ?, lado_ganador = ?, sig_perdedor = ?, lado_perdedor = ? WHERE id = ?",
+  );
+  for (const n of nodos) {
+    cruces.run(
+      n.ganador ? ids.get(n.ganador.clave) : null,
+      n.ganador?.lado ?? null,
+      n.perdedor ? ids.get(n.perdedor.clave) : null,
+      n.perdedor?.lado ?? null,
+      ids.get(n.clave),
+    );
+  }
+  // Las partidas que ya tienen sus dos lados decididos y algún hueco vacío se
+  // resuelven solas (pase directo), en orden para que se encadenen.
+  for (const n of nodos) comprobarPartida(ids.get(n.clave)!);
+}
+
+function partida(id: number) {
+  return db().prepare("SELECT * FROM partidas WHERE id = ?").get(id) as Partida;
+}
+
+// Coloca a un equipo (o un hueco vacío) en un lado de una partida.
+function colocar(id: number | null, lado: Lado | null, equipo: number | null) {
+  if (!id || !lado) return;
+  db().prepare(`UPDATE partidas SET equipo_${lado} = ?, lista_${lado} = 1 WHERE id = ?`).run(equipo, id);
+  comprobarPartida(id);
+}
+
+// Con los dos lados decididos: si falta un rival, pasa directo el otro.
+function comprobarPartida(id: number) {
+  const p = partida(id);
+  if (p.estado !== "pendiente" || !p.lista_a || !p.lista_b) return;
+  if (p.equipo_a !== null && p.equipo_b !== null) return; // se juega
+  const ganador = p.equipo_a ?? p.equipo_b;
+  db().prepare("UPDATE partidas SET ganador = ?, estado = 'bye' WHERE id = ?").run(ganador, id);
+  if (p.sig_ganador) colocar(p.sig_ganador, p.lado_ganador, ganador);
+  colocar(p.sig_perdedor, p.lado_perdedor, null);
+  // Una final que se resuelve sola (no debería pasar con dos o más equipos).
+  if (!p.sig_ganador && ganador) finalizarCuadro(torneo(p.torneo_id)!, ganador, null);
 }
 
 export function marcarEnJuego(partidaId: number, usuarioId: number, esAdmin: boolean) {
   transaccion(() => {
-    const pt = db().prepare("SELECT * FROM partidas WHERE id = ?").get(partidaId) as
-      | (Partida & { torneo_id: number })
-      | undefined;
+    const pt = partida(partidaId);
     exigir(pt, "Esa partida no existe.");
     exigirOrganizador(torneo(pt.torneo_id), usuarioId, esAdmin);
     exigir(pt.estado === "pendiente" && pt.equipo_a && pt.equipo_b, "Esa partida no se puede empezar ahora.");
@@ -398,68 +527,162 @@ export function marcarEnJuego(partidaId: number, usuarioId: number, esAdmin: boo
   });
 }
 
-export function reportarGanador(partidaId: number, equipoId: number, usuarioId: number, esAdmin: boolean) {
+// Resultado de una partida: gana A, gana B o tablas (solo en liga y suizo).
+export function reportarResultado(partidaId: number, resultado: Resultado, usuarioId: number, esAdmin: boolean) {
   transaccion(() => {
-    const pt = db().prepare("SELECT * FROM partidas WHERE id = ?").get(partidaId) as
-      | (Partida & { torneo_id: number })
-      | undefined;
+    const pt = partida(partidaId);
     exigir(pt, "Esa partida no existe.");
     const t = torneo(pt.torneo_id);
     exigirOrganizador(t, usuarioId, esAdmin);
     exigir(t.estado === "en_curso", "El torneo no está en curso.");
     exigir(pt.estado === "pendiente" || pt.estado === "en_juego", "Esa partida ya tiene resultado.");
-    exigir(pt.equipo_a && pt.equipo_b, "Todavía falta un equipo en esa partida.");
-    exigir(equipoId === pt.equipo_a || equipoId === pt.equipo_b, "Ese equipo no juega esta partida.");
-    const esFinal = !db()
-      .prepare("SELECT 1 FROM partidas WHERE torneo_id = ? AND ronda > ?")
-      .get(t.id, pt.ronda);
+    exigir(pt.equipo_a && pt.equipo_b, "Todavía falta un rival en esa partida.");
+    const porPuntos = pt.llave === "RR" || pt.llave === "SW";
+    exigir(
+      resultado !== "tablas" || porPuntos,
+      "En eliminación no hay tablas: desempaten (por ejemplo, armagedón) y marca a quien pasa.",
+    );
+    const esFinal = porPuntos ? ultimaPorJugar(t.id) : !pt.sig_ganador;
     // Las apuestas parchadas de la partida (y del campeón, en la final) deben
     // estar iguales antes de resolverse.
     exigirParchadasDePartida(partidaId, esFinal ? t.id : undefined);
 
-    db().prepare("UPDATE partidas SET ganador = ?, estado = 'jugada' WHERE id = ?").run(equipoId, partidaId);
-    resolverPorEquipo({ partidaId }, equipoId);
+    const ganador = resultado === "a" ? pt.equipo_a : resultado === "b" ? pt.equipo_b : null;
+    const perdedor = resultado === "a" ? pt.equipo_b : resultado === "b" ? pt.equipo_a : null;
+    db()
+      .prepare("UPDATE partidas SET ganador = ?, resultado = ?, estado = 'jugada' WHERE id = ?")
+      .run(ganador, resultado, partidaId);
+    if (ganador) resolverPorEquipo({ partidaId }, ganador);
+    else empatarPorPartida(partidaId);
 
-    const rondas = (
-      db().prepare("SELECT MAX(ronda) AS r FROM partidas WHERE torneo_id = ?").get(t.id) as { r: number }
-    ).r;
-    if (pt.ronda < rondas) {
-      avanzar(t.id, { ...pt, ganador: equipoId }, rondas);
+    if (porPuntos) {
+      avanzarPorPuntos(torneo(t.id)!);
+    } else if (pt.sig_ganador) {
+      colocar(pt.sig_ganador, pt.lado_ganador, ganador);
+      colocar(pt.sig_perdedor, pt.lado_perdedor, perdedor);
     } else {
-      const subcampeon = equipoId === pt.equipo_a ? pt.equipo_b : pt.equipo_a;
-      finalizar(t, equipoId, subcampeon);
+      finalizarCuadro(t, ganador!, perdedor);
     }
   });
 }
 
-// Reparte el pozo entre los integrantes de los equipos premiados, a partes
-// iguales. Los céntimos que no se dividen exacto van a los primeros inscritos.
-function finalizar(t: Torneo, campeon: number, subcampeon: number) {
-  const premios: [number, number][] =
-    t.reparto === "70-30"
-      ? [
-          [campeon, Math.floor(t.pozo * 0.7)],
-          [subcampeon, t.pozo - Math.floor(t.pozo * 0.7)],
-        ]
-      : [[campeon, t.pozo]];
+export function reportarGanador(partidaId: number, equipoId: number, usuarioId: number, esAdmin: boolean) {
+  const pt = partida(partidaId);
+  exigir(pt, "Esa partida no existe.");
+  exigir(equipoId === pt.equipo_a || equipoId === pt.equipo_b, "Ese equipo no juega esta partida.");
+  reportarResultado(partidaId, equipoId === pt.equipo_a ? "a" : "b", usuarioId, esAdmin);
+}
+
+function finalizarCuadro(t: Torneo, campeon: number, subcampeon: number | null) {
+  finalizar(t, [[campeon], subcampeon ? [subcampeon] : []]);
+}
+
+// --- Liga y suizo ---
+
+function guardarRonda(torneoId: number, llave: "RR" | "SW", ronda: number, pares: { a: number; b: number | null }[]) {
+  const ins = db().prepare(
+    `INSERT INTO partidas (torneo_id, llave, ronda, pos, equipo_a, equipo_b, ganador, resultado, estado)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  // Los descansos van al final de la ronda y cuentan como victoria.
+  const orden = [...pares.filter((p) => p.b !== null), ...pares.filter((p) => p.b === null)];
+  orden.forEach((p, pos) => {
+    const descanso = p.b === null;
+    ins.run(torneoId, llave, ronda, pos, p.a, p.b, descanso ? p.a : null, descanso ? "a" : null, descanso ? "bye" : "pendiente");
+  });
+}
+
+function ultimaPorJugar(torneoId: number) {
+  const t = torneo(torneoId)!;
+  const quedan = db()
+    .prepare("SELECT COUNT(*) AS n FROM partidas WHERE torneo_id = ? AND estado IN ('pendiente', 'en_juego')")
+    .get(torneoId) as { n: number };
+  const ronda = db().prepare("SELECT MAX(ronda) AS r FROM partidas WHERE torneo_id = ?").get(torneoId) as { r: number };
+  return quedan.n === 1 && (t.formato === "liga" || ronda.r >= t.rondas);
+}
+
+export function juegosDe(torneoId: number): JuegoPuntos[] {
+  return partidasDe(torneoId).map((p) => ({
+    ronda: p.ronda,
+    a: p.equipo_a!,
+    b: p.equipo_b,
+    resultado: p.resultado,
+  }));
+}
+
+export function tablaDe(t: Torneo) {
+  return clasificacion(
+    equiposDe(t.id).map((e) => e.id),
+    juegosDe(t.id),
+    t.formato === "liga" ? "liga" : "suizo",
+  );
+}
+
+// Con la ronda completa: en suizo se empareja la siguiente; si era la última
+// (o en liga ya se jugó todo), se reparte el premio por la clasificación.
+function avanzarPorPuntos(t: Torneo) {
+  const quedan = db()
+    .prepare("SELECT COUNT(*) AS n FROM partidas WHERE torneo_id = ? AND estado IN ('pendiente', 'en_juego')")
+    .get(t.id) as { n: number };
+  if (quedan.n > 0) return;
+  const ronda = (db().prepare("SELECT MAX(ronda) AS r FROM partidas WHERE torneo_id = ?").get(t.id) as { r: number }).r;
+  if (t.formato === "suizo" && ronda < t.rondas) {
+    guardarRonda(t.id, "SW", ronda + 1, rondaSuiza(equiposDe(t.id).map((e) => e.id), juegosDe(t.id)));
+    return;
+  }
+  finalizarPorTabla(t, tablaDe(t).map((f) => ({ equipo: f.jugador, clave: `${f.puntos}|${f.desempate}|${f.ganadas}` })));
+}
+
+// Agrupa los empatados: quienes comparten clave comparten puesto.
+export function finalizarPorTabla(t: Torneo, orden: { equipo: number; clave: string }[]) {
+  const grupos: number[][] = [];
+  for (const f of orden) {
+    const ultimo = grupos.at(-1);
+    if (ultimo && orden.find((x) => x.equipo === ultimo[0])!.clave === f.clave) ultimo.push(f.equipo);
+    else grupos.push([f.equipo]);
+  }
+  finalizar(t, grupos);
+}
+
+// Reparte el pozo por puestos: `puestos` son grupos de equipos empatados en
+// orden. El premio de cada puesto que ocupe un grupo se suma y se divide entre
+// sus equipos, y dentro de cada equipo entre sus integrantes, a partes iguales.
+// Los céntimos que no se dividen exacto van a los primeros.
+function finalizar(t: Torneo, puestos: number[][]) {
+  const premios = t.reparto === "70-30" ? [Math.floor(t.pozo * 0.7), t.pozo - Math.floor(t.pozo * 0.7)] : [t.pozo];
   const equipos = equiposDe(t.id);
-  for (const [equipoId, total] of premios) {
-    const e = equipos.find((x) => x.id === equipoId);
-    if (!e || total <= 0 || e.integrantes.length === 0) continue;
-    const base = Math.floor(total / e.integrantes.length);
-    let resto = total - base * e.integrantes.length;
-    for (const i of e.integrantes) {
+  let posicion = 0;
+  for (const grupo of puestos) {
+    const total = premios.slice(posicion, posicion + grupo.length).reduce((s, x) => s + x, 0);
+    const nombrePuesto = posicion === 0 ? "Campeón" : "Subcampeón";
+    posicion += grupo.length;
+    if (total <= 0) continue;
+    const jugadores = grupo.flatMap((id) => equipos.find((e) => e.id === id)?.integrantes ?? []);
+    if (jugadores.length === 0) continue;
+    const base = Math.floor(total / jugadores.length);
+    let resto = total - base * jugadores.length;
+    for (const i of jugadores) {
       const monto = base + (resto-- > 0 ? 1 : 0);
-      const puesto = equipoId === campeon ? "Campeón" : "Subcampeón";
-      mover(i.usuario_id, monto, "premio", `${puesto} de ${t.nombre} (${soles(total)} para ${e.nombre})`);
+      const empate = grupo.length > 1 ? " (empatados)" : "";
+      mover(i.usuario_id, monto, "premio", `${nombrePuesto}${empate} de ${t.nombre}`);
     }
+    if (posicion >= premios.length) break;
   }
   // Con premio fijo, lo recaudado no entra al premio: se lo lleva el organizador.
   if (!t.suma_recaudado && t.recaudado > 0) {
     mover(t.organizador_id, t.recaudado, "recaudacion", `Recaudación de ${t.nombre} (premio fijo)`);
   }
+  const campeon = puestos[0]?.[0] ?? null;
   db().prepare("UPDATE torneos SET estado = 'finalizado', campeon_id = ? WHERE id = ?").run(campeon, t.id);
-  resolverPorEquipo({ torneoCampeon: t.id }, campeon);
+  // Las apuestas al campeón se resuelven si hay un campeón claro; con empate en
+  // el primer puesto se devuelven.
+  if (campeon && puestos[0].length === 1) resolverPorEquipo({ torneoCampeon: t.id }, campeon);
+  else {
+    const abiertas = db()
+      .prepare("SELECT id FROM mercados WHERE torneo_id = ? AND partida_id IS NULL AND estado IN ('abierto','cerrado')")
+      .all(t.id) as { id: number }[];
+    for (const m of abiertas) anularMercado(m.id, "Empate en el primer puesto, se devuelve");
+  }
 }
 
 export function cancelarTorneo(torneoId: number, usuarioId: number, esAdmin: boolean) {

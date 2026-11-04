@@ -5,7 +5,16 @@ import { refresh } from "next/cache";
 import { exigirAdmin, exigirUsuario } from "@/lib/sesion";
 import { aEstado, exigir, type Estado } from "@/lib/errores";
 import { leerSoles } from "@/lib/dinero";
-import { cancelarRetiro, crearDeuda, pedirRetiro, perdonarDeuda, resolverRetiro } from "@/lib/billetera";
+import {
+  ajustarSaldo,
+  cambiarAdmin,
+  cancelarRetiro,
+  crearDeuda,
+  multar,
+  pedirRetiro,
+  perdonarDeuda,
+  resolverRetiro,
+} from "@/lib/billetera";
 import * as R from "@/lib/yape/recargas";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
@@ -136,4 +145,45 @@ export async function accionCrearDeuda(_: Estado, fd: FormData): Promise<Estado>
 
 export async function accionPerdonarDeuda(_: Estado, fd: FormData) {
   return comoAdmin(() => perdonarDeuda(num(fd, "deuda_id")), "Deuda perdonada.");
+}
+
+// --- Gestión de usuarios (admin) ---
+
+export async function accionAjustar(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  try {
+    const monto = leerSoles(fd.get("monto"));
+    exigir(monto, "Escribe el monto, por ejemplo 10 o 2.50.");
+    const signo = fd.get("sentido") === "descontar" ? -1 : 1;
+    ajustarSaldo(num(fd, "usuario_id"), signo * monto, String(fd.get("motivo") ?? ""), admin.usuario);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Saldo actualizado." };
+}
+
+export async function accionMultar(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  try {
+    const monto = leerSoles(fd.get("monto"));
+    exigir(monto, "Escribe el monto de la multa.");
+    multar(num(fd, "usuario_id"), monto, String(fd.get("motivo") ?? ""), admin.id);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Multa puesta. Se le retuvo lo que tenía; el resto se cobra de lo próximo que le entre." };
+}
+
+export async function accionCambiarAdmin(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  const hacer = fd.get("es_admin") === "1";
+  try {
+    cambiarAdmin(num(fd, "usuario_id"), hacer, admin.id);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: hacer ? "Ahora es admin." : "Ya no es admin." };
 }

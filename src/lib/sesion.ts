@@ -18,6 +18,7 @@ export type Usuario = {
   nick_dota: string;
   es_admin: number;
   saldo: number;
+  lichess_usuario: string;
 };
 
 // --- Contraseñas: scrypt de node, sin dependencias nativas extra ---
@@ -63,7 +64,7 @@ export async function cerrarSesion() {
 export function usuarioPorId(id: number) {
   return db()
     .prepare(
-      "SELECT id, usuario, nombre, nombre_yape, nick_dota, es_admin, saldo FROM usuarios WHERE id = ?",
+      "SELECT id, usuario, nombre, nombre_yape, nick_dota, es_admin, saldo, lichess_usuario FROM usuarios WHERE id = ?",
     )
     .get(id) as Usuario | undefined;
 }

@@ -6,6 +6,8 @@ import { exigirUsuario } from "@/lib/sesion";
 import { aEstado, ErrorUsuario, type Estado } from "@/lib/errores";
 import { leerSoles } from "@/lib/dinero";
 import * as T from "@/lib/torneos";
+import * as L from "@/lib/lichess";
+import { esLichess } from "@/lib/formatos";
 import { crearMercado, mercadosDeTorneo } from "@/lib/mercados";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
@@ -27,6 +29,11 @@ export async function accionCrearTorneo(_: Estado, fd: FormData): Promise<Estado
       tamEquipo: num(fd, "tam_equipo"),
       juego: txt(fd, "juego") === "ajedrez" ? "ajedrez" : "dota2",
       ritmo: txt(fd, "ritmo"),
+      formato: txt(fd, "formato") as T.Torneo["formato"],
+      clasifican: num(fd, "clasifican") || undefined,
+      rondas: num(fd, "rondas") || undefined,
+      duracion: num(fd, "duracion") || undefined,
+      lichessEquipo: txt(fd, "lichess_equipo"),
       maxEquipos: num(fd, "max_equipos"),
       reparto: txt(fd, "reparto"),
       fecha: txt(fd, "fecha"),
@@ -67,8 +74,58 @@ export async function accionSalirTorneo(_: Estado, fd: FormData) {
   return ejecutar((u) => T.salirDeTorneo(num(fd, "torneo_id"), u.id), "Saliste del torneo. Te devolvimos la entrada.");
 }
 
-export async function accionIniciar(_: Estado, fd: FormData) {
-  return ejecutar((u) => T.iniciarTorneo(num(fd, "torneo_id"), u.id, !!u.es_admin), "Cuadro sorteado. ¡A jugar!");
+export async function accionIniciar(_: Estado, fd: FormData): Promise<Estado> {
+  const u = await exigirUsuario();
+  const torneoId = num(fd, "torneo_id");
+  try {
+    const t = T.torneo(torneoId);
+    if (t && esLichess(t.formato)) {
+      const fallos = await L.iniciarEnLichess(torneoId, u.id, !!u.es_admin);
+      refresh();
+      return fallos.length
+        ? { error: `Torneo creado en Lichess, pero no se pudo inscribir a: ${fallos.join("; ")}` }
+        : { ok: "Torneo creado en Lichess e inscritos todos." };
+    }
+    T.iniciarTorneo(torneoId, u.id, !!u.es_admin);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Torneo sorteado. ¡A jugar!" };
+}
+
+export async function accionResultado(_: Estado, fd: FormData) {
+  const r = txt(fd, "resultado");
+  return ejecutar((u) => {
+    if (r !== "a" && r !== "b" && r !== "tablas") throw new ErrorUsuario("Elige el resultado.");
+    T.reportarResultado(num(fd, "partida_id"), r, u.id, !!u.es_admin);
+  }, "Resultado guardado.");
+}
+
+export async function accionSincronizarLichess(_: Estado, fd: FormData): Promise<Estado> {
+  const u = await exigirUsuario();
+  try {
+    const t = T.torneo(num(fd, "torneo_id"));
+    if (!t || (t.organizador_id !== u.id && !u.es_admin)) throw new ErrorUsuario("Solo quien organiza puede sincronizar.");
+    const terminado = await L.sincronizar(t.id);
+    refresh();
+    return { ok: terminado ? "Terminó en Lichess: premio repartido." : "Sincronizado. El torneo sigue en juego en Lichess." };
+  } catch (e) {
+    return aEstado(e);
+  }
+}
+
+export async function accionInscribirmeLichess(_: Estado, fd: FormData): Promise<Estado> {
+  const u = await exigirUsuario();
+  try {
+    const t = T.torneo(num(fd, "torneo_id"));
+    if (!t?.lichess_id) throw new ErrorUsuario("Ese torneo no está en Lichess.");
+    await L.inscribir(t, u.id);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Listo, ya estás inscrito en Lichess." };
 }
 
 export async function accionCancelarTorneo(_: Estado, fd: FormData) {

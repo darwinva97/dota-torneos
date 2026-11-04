@@ -1,13 +1,28 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { Cargando } from "@/components/ui";
 import { Formulario, Enviar } from "@/components/formulario";
 import { accionCrearTorneo } from "../../acciones/torneos";
 import { CamposInscripcion } from "./inscripcion";
 import { CamposPremio } from "./premio";
 import { CamposJuego } from "./juego";
+import { usuarioActual } from "@/lib/sesion";
+
+async function lichessConectado() {
+  return !!(await usuarioActual())?.lichess_usuario;
+}
 
 export const metadata: Metadata = { title: "Crear torneo" };
 
 export default function NuevoTorneo() {
+  return (
+    <Suspense fallback={<Cargando />}>
+      <Contenido />
+    </Suspense>
+  );
+}
+
+async function Contenido() {
   return (
     <div className="max-w-xl">
       <h1 className="mb-2 text-5xl">Crear torneo</h1>
@@ -19,7 +34,7 @@ export default function NuevoTorneo() {
           <span className="etiqueta">Nombre</span>
           <input name="nombre" required placeholder="Copa del Barrio" className="campo" />
         </label>
-        <CamposJuego />
+        <CamposJuego lichessConectado={await lichessConectado()} />
         <CamposInscripcion />
         <CamposPremio />
         <fieldset>

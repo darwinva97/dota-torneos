@@ -12,9 +12,21 @@ https://apuestas.bezenti.com.
   - **Premio base**: el organizador puede poner un monto de su saldo (y subirlo
     después). Por defecto se le suma lo recaudado; con «premio fijo» el premio es
     solo la base y lo recaudado vuelve al organizador al terminar.
-- **Ajedrez**: además de Dota 2, torneos de ajedrez uno contra uno con modalidad
-  (bala, blitz, rápidas, clásicas u otro ritmo). Si hay tablas, se desempata y el
-  organizador marca a quien pasa.
+- **Formatos de torneo** (`src/lib/formatos.ts`, cuadros en `src/lib/llaves.ts`):
+  - Dota 2: **por descarte** (eliminación directa), **upper y lower bracket** como
+    en The International (doble eliminación, gran final sin reinicio) y
+    **descarte + upper y lower** (para muchos equipos: descarte hasta quedar 4 u 8).
+  - Ajedrez (uno contra uno, con ritmo: bala, blitz, rápidas, clásicas u otro):
+    **eliminación**, **todos contra todos** y **suizo** (`src/lib/puntos.ts`, con
+    tablas, descansos, Buchholz y Sonneborn-Berger), y **Arena** o **Suizo en
+    Lichess**.
+- **Lichess** (`src/lib/lichess.ts`): cada jugador conecta su cuenta por OAuth
+  (PKCE, permiso `tournament:write`; el token se guarda cifrado con
+  `LICHESS_CLAVE`). Quien organiza crea el torneo en Lichess con su cuenta,
+  privado con contraseña; inscribimos a todos solos; cada minuto se sincroniza y,
+  al terminar, se reparte el premio por la clasificación de Lichess. Se eligió
+  Lichess porque su API pública permite crear torneos e inscribir jugadores; la
+  de chess.com es solo de lectura.
 - **Apuestas aparte**, en dos modalidades:
   - **Parche 1 a 1** (por defecto): dos bandos; el evento solo puede empezar
     (cerrar jugadas) o resolverse cuando lo apostado a cada bando es igual, así
@@ -38,6 +50,10 @@ https://apuestas.bezenti.com.
   (recargas, premios, devoluciones) paga primero la deuda y pasa al acreedor.
   Mientras deba no puede inscribirse, apostar ni retirar. El admin puede
   perdonar lo que falte.
+- **Gestión de usuarios (admin)**: lista con saldos, lo que tienen en juego,
+  recargas, retiros y deudas; ficha de cada uno con su historial, ajustes
+  manuales de saldo (acreditar o descontar con motivo), multas (van al pozo y
+  funcionan como una deuda) y permisos de admin.
 
 El primer usuario que se registra es admin. Para nombrar a otro:
 `npx tsx --conditions=react-server scripts/hacer-admin.ts <usuario>`.
@@ -97,12 +113,17 @@ enviar pagos ya interpretados: `{ "id", "monto", "nombre", "recibido" }`.
 | `YAPE_API_URL`, `YAPE_API_TOKEN` | Opcional: API a consultar cada 3 s (no hace falta con yapi) |
 | `YAPE_SIMULADOR=1` | Muestra en Admin un formulario para simular Yapes; quitar en cuanto esté la API |
 | `DATA_DIR` | Dónde van la base SQLite y las capturas (por defecto `./data`) |
+| `LICHESS_CLAVE` | 64 caracteres hex para cifrar los tokens de Lichess |
+| `PUBLIC_URL` | URL pública, para el regreso del OAuth de Lichess |
+| `LICHESS_URL` | Solo para pruebas: apunta a `scripts/lichess-simulado.ts` |
 
 ## Desarrollo y despliegue
 
 ```bash
 npm run dev
 DATA_DIR=$(mktemp -d) npx tsx --conditions=react-server scripts/prueba-logica.ts   # lógica de dinero
+DATA_DIR=$(mktemp -d) npx tsx --conditions=react-server scripts/prueba-lichess.ts  # Lichess (simulado)
+npx tsx scripts/prueba-cuadros.ts                                                  # cuadros y suizo
 npm run build && systemctl --user restart el-pozo                                  # puerto 4090
 ```
 

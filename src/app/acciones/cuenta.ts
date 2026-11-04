@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import { actualizarPerfil, cerrarSesion, entrar, exigirUsuario, registrar } from "@/lib/sesion";
 import { aEstado, type Estado } from "@/lib/errores";
+import { desconectar } from "@/lib/lichess";
 
 const txt = (fd: FormData, k: string) => String(fd.get(k) ?? "");
 
@@ -49,4 +50,10 @@ export async function accionPerfil(_: Estado, fd: FormData): Promise<Estado> {
   }
   refresh();
   return { ok: "Perfil guardado." };
+}
+
+export async function accionDesconectarLichess() {
+  const u = await exigirUsuario();
+  await desconectar(u.id);
+  refresh();
 }

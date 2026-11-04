@@ -7,14 +7,17 @@ import {
   equiposDe,
   nombreJuego,
   partidasDe,
+  tablaDe,
   torneo,
   type Equipo,
-  type Partida,
   type Torneo,
 } from "@/lib/torneos";
 import { mercadosDeTorneo } from "@/lib/mercados";
 import { soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
+import { esLichess, esPorPuntos, nombreFormato } from "@/lib/formatos";
+import { posiciones as posicionesLichess, urlTorneo } from "@/lib/lichess";
+import { Cuadro, PanelLichess, RondasPuntos, TablaPuntos } from "./formatos";
 import { Cargando, Dinero, Estado, Vacio } from "@/components/ui";
 import {
   accionApostarEnTorneo,
@@ -22,8 +25,6 @@ import {
   accionAsistencia,
   accionCancelarTorneo,
   accionCrearEquipo,
-  accionEnJuego,
-  accionGanador,
   accionIniciar,
   accionSalirTorneo,
   accionUnirse,
@@ -47,6 +48,7 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
   const organiza = t.organizador_id === u.id || !!u.es_admin;
   const miEquipo = equipos.find((e) => e.integrantes.some((i) => i.usuario_id === u.id));
   const campeon = equipos.find((e) => e.id === t.campeon_id);
+  const nombre = (id: number | null) => equipos.find((e) => e.id === id)?.nombre;
 
   return (
     <div className="space-y-10">
@@ -60,6 +62,8 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
             Organiza {t.organizador}
             {t.fecha ? `. Se juega ${t.fecha}` : ""}.{" "}
             {t.juego === "ajedrez" ? `${nombreJuego(t)}, uno contra uno` : `Dota 2, equipos de ${t.tam_equipo}`},{" "}
+            {nombreFormato(t.juego, t.formato).toLowerCase()}
+            {t.formato === "mixto" ? ` (pasan ${t.clasifican})` : ""},{" "}
             {t.reparto === "70-30" ? "70 % al campeón y 30 % al subcampeón" : "todo al campeón"}.
           </p>
           <p className="mt-2">{textoInscripcion(t)}</p>
@@ -95,10 +99,10 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
         <Inscripciones t={t} equipos={equipos} u={u} miEquipo={miEquipo} organiza={organiza} />
       )}
 
-      {partidas.length > 0 && (
-        <section>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-3xl">Cuadro</h2>
+      {t.estado !== "inscripciones" && t.estado !== "cancelado" && (
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-3xl">{esPorPuntos(t.formato) ? "Clasificación" : "Cuadro"}</h2>
             {t.estado === "en_curso" && (
               <Formulario accion={accionApostarEnTorneo}>
                 <input type="hidden" name="torneo_id" value={t.id} />
@@ -106,11 +110,21 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
               </Formulario>
             )}
           </div>
-          <Cuadro t={t} partidas={partidas} equipos={equipos} organiza={organiza} />
-          {organiza && t.estado === "en_curso" && (
-            <p className="mt-3 text-sm text-niebla">
-              Marca «Empieza» cuando arranque cada partida: eso cierra sus apuestas. Al marcar al ganador, las apuestas
-              de la partida se pagan solas.
+          {esLichess(t.formato) ? (
+            <PanelLichessConDatos t={t} equipos={equipos} yo={u.id} organiza={organiza} miLichess={u.lichess_usuario} />
+          ) : esPorPuntos(t.formato) ? (
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[1fr_1fr]">
+              <TablaPuntos filas={tablaDe(t)} nombre={nombre} sistema={t.formato === "liga" ? "liga" : "suizo"} />
+              <RondasPuntos t={t} partidas={partidas} nombre={nombre} organiza={organiza} />
+            </div>
+          ) : (
+            <Cuadro t={t} partidas={partidas} equipos={equipos} organiza={organiza} />
+          )}
+          {organiza && t.estado === "en_curso" && !esLichess(t.formato) && (
+            <p className="text-sm text-niebla">
+              {esPorPuntos(t.formato)
+                ? "Anota cada resultado: 1-0 si ganan blancas, ½-½ tablas, 0-1 si ganan negras. Las apuestas de la partida se pagan solas (con tablas se devuelven)."
+                : "Marca «Empieza» cuando arranque cada partida: eso cierra sus apuestas. Al marcar al ganador, las apuestas de la partida se pagan solas."}
             </p>
           )}
         </section>
@@ -204,10 +218,20 @@ function Inscripciones({
             key={sinMarcar}
             accion={accionIniciar}
             className="text-right"
-            confirmar="¿Cerrar inscripciones y sortear el cuadro? Ya nadie podrá entrar ni salir."
+            confirmar={
+              esLichess(t.formato)
+                ? "¿Cerrar inscripciones y crear el torneo en Lichess? Inscribiremos a todos con su cuenta."
+                : "¿Cerrar inscripciones y empezar? Ya nadie podrá entrar ni salir."
+            }
           >
             <input type="hidden" name="torneo_id" value={t.id} />
-            <Enviar>Cerrar inscripciones y sortear cuadro</Enviar>
+            <Enviar>
+              {esLichess(t.formato)
+                ? "Cerrar inscripciones y crear en Lichess"
+                : esPorPuntos(t.formato)
+                  ? "Cerrar inscripciones y emparejar"
+                  : "Cerrar inscripciones y sortear cuadro"}
+            </Enviar>
           </Formulario>
         )}
       </div>
@@ -276,6 +300,15 @@ function Inscripciones({
             {ajedrez ? "Inscribirme" : "Crear"}
             {costo > 0 ? ` y pagar ${soles(costo)}` : ""}
           </Enviar>
+          {esLichess(t.formato) && !u.lichess_usuario && (
+            <p className="basis-full text-sm text-dire-claro">
+              Este torneo se juega en Lichess.{" "}
+              <Link href="/perfil" className="underline underline-offset-4">
+                Conecta tu cuenta de Lichess
+              </Link>{" "}
+              para inscribirte: te apuntaremos allí solos.
+            </p>
+          )}
           {u.saldo < costo && (
             <p className="basis-full text-sm text-niebla">
               Tienes {soles(u.saldo)}.{" "}
@@ -390,114 +423,21 @@ function MarcarAsistencia({
   );
 }
 
-function nombreRonda(ronda: number, total: number) {
-  const faltan = total - ronda;
-  if (faltan === 0) return "Final";
-  if (faltan === 1) return "Semifinales";
-  if (faltan === 2) return "Cuartos";
-  return `Ronda ${ronda}`;
-}
-
-function Cuadro({
-  t,
-  partidas,
-  equipos,
-  organiza,
-}: {
+async function PanelLichessConDatos(props: {
   t: Torneo;
-  partidas: Partida[];
   equipos: Equipo[];
+  yo: number;
   organiza: boolean;
+  miLichess: string;
 }) {
-  const total = Math.max(...partidas.map((p) => p.ronda));
-  const nombre = (id: number | null) => equipos.find((e) => e.id === id)?.nombre;
-  const rondas = Array.from({ length: total }, (_, i) => partidas.filter((p) => p.ronda === i + 1));
-
-  return (
-    <div className="overflow-x-auto pb-2">
-      <ol className="flex min-w-max gap-6">
-        {rondas.map((lista, i) => (
-          <li key={i} className="flex w-64 flex-col">
-            <h3 className="mb-3 text-lg text-niebla">{nombreRonda(i + 1, total)}</h3>
-            <ul className="flex flex-1 flex-col justify-around gap-4">
-              {lista.map((p) => (
-                <li key={p.id}>
-                  <TarjetaPartida p={p} nombre={nombre} t={t} organiza={organiza} final={i + 1 === total} />
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function TarjetaPartida({
-  p,
-  nombre,
-  t,
-  organiza,
-  final,
-}: {
-  p: Partida;
-  nombre: (id: number | null) => string | undefined;
-  t: Torneo;
-  organiza: boolean;
-  final: boolean;
-}) {
-  const lista = p.estado === "pendiente" || p.estado === "en_juego";
-  const completa = !!(p.equipo_a && p.equipo_b);
-  const puedeReportar = organiza && t.estado === "en_curso" && lista && completa;
-
-  const fila = (id: number | null) => {
-    const gano = p.ganador != null && p.ganador === id;
-    const perdio = p.ganador != null && id != null && p.ganador !== id;
-    return (
-      <div
-        className={`flex min-h-10 items-center justify-between gap-2 px-3 py-2 ${
-          gano ? "text-pergamino" : perdio ? "text-niebla line-through decoration-dire/70" : ""
-        }`}
-      >
-        <span className={id ? "" : "text-niebla/60"}>{nombre(id) ?? (p.estado === "bye" ? "Pasa directo" : "Por definir")}</span>
-        {gano && <span className="size-2 shrink-0 rounded-full bg-radiant" aria-label="ganó" />}
-        {puedeReportar && id && (
-          <Formulario accion={accionGanador} confirmar={`¿Ganó ${nombre(id)}? No se puede deshacer.`}>
-            <input type="hidden" name="partida_id" value={p.id} />
-            <input type="hidden" name="equipo_id" value={id} />
-            <Enviar variante="boton-sobrio" className="px-2 py-0.5 text-sm whitespace-nowrap">
-              Marcar ganador
-            </Enviar>
-          </Formulario>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className={`rounded-md border bg-losa ${final ? "border-oro/50" : "border-borde"}`}>
-      {p.estado === "en_juego" && (
-        <div className="border-b border-borde px-3 py-1 text-sm text-radiant">Jugándose ahora</div>
-      )}
-      <div className="divide-y divide-borde">
-        {fila(p.equipo_a)}
-        {fila(p.equipo_b)}
-      </div>
-      {completa && p.estado === "pendiente" && t.estado === "en_curso" && (
-        <div className="flex flex-wrap gap-2 border-t border-borde px-3 py-2">
-          <Formulario accion={accionApostarEnTorneo}>
-            <input type="hidden" name="torneo_id" value={t.id} />
-            <input type="hidden" name="partida_id" value={p.id} />
-            <button className="text-sm text-oro hover:underline">Apostar</button>
-          </Formulario>
-          {organiza && (
-            <Formulario accion={accionEnJuego} className="ml-auto">
-              <input type="hidden" name="partida_id" value={p.id} />
-              <button className="text-sm text-niebla hover:text-pergamino">Empieza</button>
-            </Formulario>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  let filas = null;
+  let error = null;
+  if (props.t.lichess_id) {
+    try {
+      filas = await posicionesLichess(props.t);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+  return <PanelLichess {...props} url={urlTorneo(props.t)} posiciones={filas} error={error} />;
 }

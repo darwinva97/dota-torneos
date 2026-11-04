@@ -6,6 +6,7 @@ import {
   Gift,
   HandCoins,
   PiggyBank,
+  SlidersHorizontal,
   Swords,
   Timer,
   Trophy,
@@ -33,6 +34,7 @@ export const TIPOS: Record<TipoMovimiento, { texto: string; Icono: LucideIcon }>
   recaudacion: { texto: "Recaudación de tu torneo", Icono: PiggyBank },
   deuda: { texto: "Pago de deuda", Icono: HandCoins },
   cobro_deuda: { texto: "Cobro de deuda", Icono: HandCoins },
+  ajuste: { texto: "Ajuste del admin", Icono: SlidersHorizontal },
 };
 
 export function ListaMovimientos({

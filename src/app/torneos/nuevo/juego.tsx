@@ -3,12 +3,18 @@
 import { useState } from "react";
 import { ChessKnight, Swords } from "lucide-react";
 import { RITMOS_AJEDREZ, type Juego } from "@/lib/juegos";
+import { DURACIONES_ARENA, FORMATOS, esLichess, type Formato } from "@/lib/formatos";
 
-// Juego del torneo. En ajedrez es uno contra uno y se elige el ritmo.
-export function CamposJuego() {
+// Juego y formato del torneo. En ajedrez es uno contra uno y se elige el ritmo.
+export function CamposJuego({ lichessConectado }: { lichessConectado: boolean }) {
   const [juego, setJuego] = useState<Juego>("dota2");
+  const [formato, setFormato] = useState<Formato>("eliminacion");
   const [ritmo, setRitmo] = useState<string>(RITMOS_AJEDREZ[1].valor);
   const ajedrez = juego === "ajedrez";
+  const elegir = (j: Juego) => {
+    setJuego(j);
+    setFormato("eliminacion");
+  };
 
   return (
     <>
@@ -27,7 +33,7 @@ export function CamposJuego() {
                 name="juego"
                 value={valor}
                 checked={juego === valor}
-                onChange={() => setJuego(valor)}
+                onChange={() => elegir(valor)}
                 className="accent-[#e8b54a]"
               />
               <Icono className="size-5 text-oro" aria-hidden />
@@ -36,6 +42,74 @@ export function CamposJuego() {
           ))}
         </div>
       </fieldset>
+
+      <fieldset>
+        <legend className="etiqueta">Formato</legend>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {FORMATOS[juego].map((f) => (
+            <label key={f.valor} className="panel flex cursor-pointer gap-3 p-3 has-checked:border-oro">
+              <input
+                type="radio"
+                name="formato"
+                value={f.valor}
+                checked={formato === f.valor}
+                onChange={() => setFormato(f.valor)}
+                className="mt-1 accent-[#e8b54a]"
+              />
+              <span>
+                <span className="block font-medium">{f.texto}</span>
+                <span className="text-sm text-niebla">{f.detalle}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {formato === "mixto" && (
+        <label className="block max-w-xs">
+          <span className="etiqueta">Pasan a upper y lower</span>
+          <select name="clasifican" defaultValue="8" className="campo">
+            <option value="4">4 equipos</option>
+            <option value="8">8 equipos</option>
+          </select>
+        </label>
+      )}
+      {(formato === "suizo" || formato === "lichess_suizo") && (
+        <label className="block max-w-xs">
+          <span className="etiqueta">Rondas</span>
+          <input name="rondas" type="number" min={formato === "lichess_suizo" ? 3 : 1} max={15} placeholder="Automático" className="campo" />
+          <span className="ayuda">
+            {formato === "lichess_suizo" ? "Lichess pide al menos 3." : "Vacío: las justas para que haya un ganador."}
+          </span>
+        </label>
+      )}
+      {formato === "lichess_arena" && (
+        <label className="block max-w-xs">
+          <span className="etiqueta">Duración de la Arena</span>
+          <select name="duracion" defaultValue="60" className="campo">
+            {DURACIONES_ARENA.map((m) => (
+              <option key={m} value={m}>
+                {m} minutos
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {formato === "lichess_suizo" && (
+        <label className="block">
+          <span className="etiqueta">Equipo de Lichess</span>
+          <input name="lichess_equipo" required placeholder="mi-club-de-ajedrez" className="campo" />
+          <span className="ayuda">
+            Lichess solo permite suizos dentro de un equipo del que seas líder: es lo que va tras lichess.org/team/.
+          </span>
+        </label>
+      )}
+      {esLichess(formato) && !lichessConectado && (
+        <p className="rounded-md border border-dire/40 bg-dire/10 px-3 py-2 text-sm text-dire-claro">
+          Para crear el torneo en Lichess tienes que conectar tu cuenta de Lichess en Perfil antes de cerrar las
+          inscripciones. Los jugadores también tendrán que conectar la suya para inscribirse.
+        </p>
+      )}
 
       {ajedrez && (
         <div className="grid gap-5 sm:grid-cols-2">

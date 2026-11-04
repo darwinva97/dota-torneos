@@ -19,7 +19,8 @@ export type TipoMovimiento =
   | "premio_base_devuelto"
   | "recaudacion"
   | "deuda"
-  | "cobro_deuda";
+  | "cobro_deuda"
+  | "ajuste";
 
 // Único punto que toca el saldo. Debe llamarse dentro de una transacción si
 // forma parte de una operación mayor (better-sqlite3 anida con savepoints).
@@ -69,6 +70,7 @@ export const GRUPOS = {
   ],
   apuestas: ["apuesta", "apuesta_ganada", "apuesta_devuelta"],
   deudas: ["deuda", "cobro_deuda"],
+  ajustes: ["ajuste"],
 } satisfies Record<string, TipoMovimiento[]>;
 export type Grupo = keyof typeof GRUPOS;
 
@@ -215,10 +217,72 @@ export function solicitudesPendientes() {
   };
 }
 
-export function resumenUsuarios() {
+export type FichaUsuario = {
+  id: number;
+  usuario: string;
+  nombre: string;
+  nombre_yape: string;
+  nick_dota: string;
+  lichess_usuario: string;
+  saldo: number;
+  es_admin: number;
+  creado: string;
+  debe: number;
+  recargado: number;
+  retirado: number;
+  en_retiro: number;
+  /** Lo que tiene puesto en apuestas abiertas e inscripciones de torneos sin terminar. */
+  en_juego: number;
+  ultimo: string | null;
+};
+
+const SELECT_FICHA = `
+  SELECT u.id, u.usuario, u.nombre, u.nombre_yape, u.nick_dota, u.lichess_usuario, u.saldo, u.es_admin, u.creado,
+    COALESCE((SELECT SUM(monto - pagado) FROM deudas d WHERE d.deudor_id = u.id AND d.estado = 'pendiente'), 0) AS debe,
+    COALESCE((SELECT SUM(monto) FROM movimientos m WHERE m.usuario_id = u.id AND m.tipo = 'recarga'), 0) AS recargado,
+    COALESCE((SELECT -SUM(monto) FROM movimientos m WHERE m.usuario_id = u.id AND m.tipo IN ('retiro', 'retiro_devuelto')), 0) AS retirado,
+    COALESCE((SELECT SUM(monto) FROM retiros r WHERE r.usuario_id = u.id AND r.estado = 'pendiente'), 0) AS en_retiro,
+    COALESCE((SELECT SUM(j.monto) FROM jugadas j JOIN mercados k ON k.id = j.mercado_id
+              WHERE j.usuario_id = u.id AND k.estado IN ('abierto', 'cerrado')), 0)
+    + COALESCE((SELECT SUM(i.aporte + i.garantia) FROM integrantes i JOIN torneos t ON t.id = i.torneo_id
+              WHERE i.usuario_id = u.id AND t.estado IN ('inscripciones', 'en_curso')), 0) AS en_juego,
+    (SELECT MAX(creado) FROM movimientos m WHERE m.usuario_id = u.id) AS ultimo
+  FROM usuarios u`;
+
+export function resumenUsuarios(busqueda = "") {
+  const q = `%${busqueda.trim()}%`;
   return db()
-    .prepare("SELECT id, usuario, nombre_yape, saldo, es_admin FROM usuarios ORDER BY saldo DESC")
-    .all() as { id: number; usuario: string; nombre_yape: string; saldo: number; es_admin: number }[];
+    .prepare(
+      `${SELECT_FICHA} WHERE u.usuario LIKE ? OR u.nombre LIKE ? OR u.nombre_yape LIKE ? OR u.lichess_usuario LIKE ?
+       ORDER BY u.saldo DESC, u.id`,
+    )
+    .all(q, q, q, q) as FichaUsuario[];
+}
+
+export function fichaUsuario(id: number) {
+  return db().prepare(`${SELECT_FICHA} WHERE u.id = ?`).get(id) as FichaUsuario | undefined;
+}
+
+// --- Ajustes del admin ---
+
+// Acredita (monto > 0) o descuenta (monto < 0) a mano, por ejemplo un pago en
+// efectivo o una corrección. Queda en el historial con el motivo y quién lo hizo.
+export function ajustarSaldo(usuarioId: number, monto: number, motivo: string, admin: string) {
+  exigir(monto !== 0 && Math.abs(monto) >= 1, "Escribe el monto del ajuste.");
+  exigir(motivo.trim().length >= 3, "Escribe el motivo del ajuste.");
+  mover(usuarioId, monto, "ajuste", `${monto > 0 ? "Acreditado" : "Descontado"} por ${admin}: ${motivo.trim()}`);
+}
+
+// Multa: va al pozo (el admin que la pone). Se retiene lo que tenga y lo que
+// falte se cobra de lo próximo que le entre; mientras tanto no puede jugar.
+export function multar(usuarioId: number, monto: number, motivo: string, adminId: number) {
+  exigir(usuarioId !== adminId, "No te puedes multar a ti mismo.");
+  crearDeuda({ deudorId: usuarioId, acreedorId: adminId, monto, motivo: `Multa: ${motivo.trim()}`, creadoPor: adminId });
+}
+
+export function cambiarAdmin(usuarioId: number, esAdmin: boolean, adminId: number) {
+  exigir(usuarioId !== adminId || esAdmin, "No te puedes quitar a ti mismo el permiso de admin.");
+  db().prepare("UPDATE usuarios SET es_admin = ? WHERE id = ?").run(esAdmin ? 1 : 0, usuarioId);
 }
 
 // --- Deudas y retenciones ---

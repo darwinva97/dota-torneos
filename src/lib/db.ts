@@ -72,16 +72,29 @@ CREATE TABLE IF NOT EXISTS integrantes (
   PRIMARY KEY (torneo_id, usuario_id)
 );
 
+-- Partidas de cualquier formato. En los cuadros (llave Q descarte, U upper,
+-- L lower, GF gran final) cada partida sabe a qué partida y lado van su ganador
+-- y su perdedor; lista_a/lista_b dicen si ese lado ya está decidido (un lado
+-- decidido y vacío es un pase directo). En liga y suizo (llave RR, SW) no hay
+-- cruce: solo resultado, que puede ser tablas.
 CREATE TABLE IF NOT EXISTS partidas (
   id INTEGER PRIMARY KEY,
   torneo_id INTEGER NOT NULL REFERENCES torneos(id),
+  llave TEXT NOT NULL DEFAULT 'U',
   ronda INTEGER NOT NULL,
   pos INTEGER NOT NULL,
   equipo_a INTEGER REFERENCES equipos(id),
   equipo_b INTEGER REFERENCES equipos(id),
+  lista_a INTEGER NOT NULL DEFAULT 1,
+  lista_b INTEGER NOT NULL DEFAULT 1,
   ganador INTEGER REFERENCES equipos(id),
+  resultado TEXT,
   estado TEXT NOT NULL DEFAULT 'pendiente',
-  UNIQUE (torneo_id, ronda, pos)
+  sig_ganador INTEGER,
+  lado_ganador TEXT,
+  sig_perdedor INTEGER,
+  lado_perdedor TEXT,
+  UNIQUE (torneo_id, llave, ronda, pos)
 );
 
 -- Apuestas aparte, de pozo común (parimutuel): quien acierta se reparte todo
@@ -214,9 +227,37 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   // Juego del torneo y, en ajedrez, el ritmo («blitz 3+2»).
   ["torneos", "juego", "TEXT NOT NULL DEFAULT 'dota2'"],
   ["torneos", "ritmo", "TEXT NOT NULL DEFAULT ''"],
+  // Formato del torneo (ver lib/formatos.ts) y sus parámetros.
+  ["torneos", "formato", "TEXT NOT NULL DEFAULT 'eliminacion'"],
+  ["torneos", "clasifican", "INTEGER NOT NULL DEFAULT 0"],
+  ["torneos", "rondas", "INTEGER NOT NULL DEFAULT 0"],
+  ["torneos", "duracion", "INTEGER NOT NULL DEFAULT 0"],
+  // Torneos jugados en Lichess.
+  ["torneos", "lichess_id", "TEXT NOT NULL DEFAULT ''"],
+  ["torneos", "lichess_clave", "TEXT NOT NULL DEFAULT ''"],
+  ["torneos", "lichess_equipo", "TEXT NOT NULL DEFAULT ''"],
+  ["torneos", "lichess_sync", "INTEGER NOT NULL DEFAULT 0"],
+  // Cuenta de Lichess conectada por OAuth (el token va cifrado).
+  ["usuarios", "lichess_usuario", "TEXT NOT NULL DEFAULT ''"],
+  ["usuarios", "lichess_token", "TEXT NOT NULL DEFAULT ''"],
+  ["integrantes", "lichess_inscrito", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function migrar(db: Database.Database) {
+  // Partidas antiguas (solo eliminación directa, sin cruces): se reconstruye la
+  // tabla con el esquema nuevo conservando lo que hubiera.
+  const columnasPartidas = (db.prepare("PRAGMA table_info(partidas)").all() as { name: string }[]).map((c) => c.name);
+  if (!columnasPartidas.includes("llave")) {
+    db.pragma("foreign_keys = OFF");
+    db.transaction(() => {
+      db.exec("ALTER TABLE partidas RENAME TO partidas_vieja");
+      db.exec(ESQUEMA);
+      db.exec(`INSERT INTO partidas (id, torneo_id, llave, ronda, pos, equipo_a, equipo_b, ganador, estado)
+               SELECT id, torneo_id, 'U', ronda, pos, equipo_a, equipo_b, ganador, estado FROM partidas_vieja`);
+      db.exec("DROP TABLE partidas_vieja");
+    })();
+    db.pragma("foreign_keys = ON");
+  }
   for (const [tabla, columna, definicion] of COLUMNAS_NUEVAS) {
     const existe = (db.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).some(
       (c) => c.name === columna,

@@ -359,6 +359,94 @@ T.marcarEnJuego(ptd.id, pa, false);
 T.reportarGanador(ptd.id, M.opcionesDe(mpt)[0].equipo_id!, pa, false);
 assert.equal(M.mercado(mpt)!.estado, "resuelto");
 
+// --- Gestión de usuarios del admin ---
+const jefe = nuevo("jefe", "Jefe Pozo");
+const multado = nuevo("multado", "Mul Tado");
+Bi.ajustarSaldo(multado, 1500, "Pagó en efectivo", "jefe");
+assert.equal(saldo(multado), 1500);
+Bi.ajustarSaldo(multado, -500, "Corrección", "jefe");
+assert.equal(saldo(multado), 1000);
+assert.throws(() => Bi.ajustarSaldo(multado, -5000, "Demasiado", "jefe"), /Saldo insuficiente/);
+assert.throws(() => Bi.ajustarSaldo(multado, 100, "", "jefe"), /motivo/);
+const sJefe = saldo(jefe);
+Bi.multar(multado, 1500, "Abandonó la partida", jefe);
+assert.equal(saldo(multado), 0, "la multa retiene todo lo que tiene");
+assert.equal(saldo(jefe) - sJefe, 1000, "y va al pozo");
+assert.equal(Bi.deudaPendiente(multado), 500, "el resto queda pendiente");
+assert.throws(() => Bi.multar(jefe, 100, "yo", jefe), /a ti mismo/);
+const ficha = Bi.fichaUsuario(multado)!;
+assert.equal(ficha.debe, 500);
+assert.equal(ficha.saldo, 0);
+assert.ok(Bi.resumenUsuarios("multa").some((u) => u.id === multado), "búsqueda por usuario");
+Bi.cambiarAdmin(multado, true, jefe);
+assert.equal(Bi.fichaUsuario(multado)!.es_admin, 1);
+assert.throws(() => Bi.cambiarAdmin(jefe, false, jefe), /a ti mismo/);
+Bi.perdonarDeuda(Bi.deudasDe(multado).find((d) => d.estado === "pendiente")!.id);
+
+// --- Formatos de torneo con dinero de por medio ---
+const formJug = Array.from({ length: 10 }, (_, k) => nuevo(`fmt${k}`, `Formato${k} Prueba${k}`));
+for (const [k, u] of formJug.entries()) {
+  R.abrirRecarga(u, 3000);
+  R.ingresarPago({ externoId: `fmt-${k}`, monto: 3000, nombre: `Formato${k} Prueba${k}`, recibido: Date.now(), fuente: "test" });
+}
+const dineroF = total();
+// Juega un cuadro entero marcando siempre ganador al lado A (o B al azar fijo).
+function jugarCuadro(tid: number, elegir: (p: T.Partida) => "a" | "b") {
+  for (let vuelta = 0; vuelta < 200 && T.torneo(tid)!.estado === "en_curso"; vuelta++) {
+    const p = T.partidasDe(tid).find((x) => x.estado === "pendiente" && x.equipo_a && x.equipo_b);
+    if (!p) break;
+    T.reportarResultado(p.id, elegir(p), formJug[0], false);
+  }
+  assert.equal(T.torneo(tid)!.estado, "finalizado", "el cuadro llega al final");
+}
+const nuevoFmt = (nombre: string, juego: "dota2" | "ajedrez", formato: string, extra: object = {}) =>
+  T.crearTorneo({ organizadorId: formJug[0], nombre, descripcion: "", entrada: 100, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 16, reparto: "70-30", fecha: "", premioBase: 0, sumaRecaudado: true, juego, ritmo: juego === "ajedrez" ? "blitz 3+2" : "", formato: formato as T.Torneo["formato"], ...extra });
+// Upper y lower con 5 equipos: cada eliminado pierde dos veces.
+const tdoble = nuevoFmt("TI chico", "dota2", "doble");
+formJug.slice(0, 5).forEach((u, k) => T.crearEquipo(tdoble, u, `Doble ${k}`));
+T.iniciarTorneo(tdoble, formJug[0], false);
+assert.ok(T.partidasDe(tdoble).some((p) => p.llave === "L"), "hay lower bracket");
+assert.ok(T.partidasDe(tdoble).some((p) => p.llave === "GF"), "hay gran final");
+jugarCuadro(tdoble, (p) => (p.id % 3 === 0 ? "b" : "a"));
+const perdidas = new Map<number, number>();
+for (const p of T.partidasDe(tdoble)) if (p.estado === "jugada") { const l = p.ganador === p.equipo_a ? p.equipo_b! : p.equipo_a!; perdidas.set(l, (perdidas.get(l) ?? 0) + 1); }
+const campeonDoble = T.torneo(tdoble)!.campeon_id!;
+const gf = T.partidasDe(tdoble).find((p) => p.llave === "GF")!;
+const subDoble = gf.ganador === gf.equipo_a ? gf.equipo_b! : gf.equipo_a!;
+for (const e of T.equiposDe(tdoble)) if (e.id !== campeonDoble && e.id !== subDoble) assert.equal(perdidas.get(e.id), 2, "eliminado tras dos derrotas");
+assert.equal(total(), dineroF, "el premio sale de las inscripciones");
+// Combinado: 10 equipos, descarte hasta 4 y luego upper y lower.
+const tmix = nuevoFmt("Grande", "dota2", "mixto", { clasifican: 4 });
+formJug.forEach((u, k) => T.crearEquipo(tmix, u, `Mix ${k}`));
+T.iniciarTorneo(tmix, formJug[0], false);
+assert.ok(T.partidasDe(tmix).some((p) => p.llave === "Q") && T.partidasDe(tmix).some((p) => p.llave === "L"));
+jugarCuadro(tmix, (p) => (p.id % 2 ? "a" : "b"));
+assert.equal(total(), dineroF);
+// Ajedrez, todos contra todos con tablas: 4 jugadores, 6 partidas, 3 rondas.
+const tliga = nuevoFmt("Liga", "ajedrez", "liga");
+formJug.slice(0, 4).forEach((u) => T.crearEquipo(tliga, u, `J${u}`));
+T.iniciarTorneo(tliga, formJug[0], false);
+assert.equal(T.partidasDe(tliga).length, 6);
+assert.throws(() => T.reportarResultado(T.partidasDe(tdoble)[0].id, "tablas", formJug[0], false), /./);
+const resLiga: ("a" | "b" | "tablas")[] = ["a", "tablas", "b", "a", "tablas", "a"];
+T.partidasDe(tliga).forEach((p, k) => T.reportarResultado(p.id, resLiga[k], formJug[0], false));
+const tablaLiga = T.tablaDe(T.torneo(tliga)!);
+assert.equal(tablaLiga.reduce((s2, f) => s2 + f.puntos, 0), 6, "se reparten 6 puntos en 6 partidas");
+assert.equal(T.torneo(tliga)!.estado, "finalizado");
+assert.equal(total(), dineroF);
+// Suizo con 5 jugadores y 3 rondas: uno descansa por ronda y luego se reparte.
+const tsuizo = nuevoFmt("Suizo", "ajedrez", "suizo", { rondas: 3 });
+formJug.slice(0, 5).forEach((u) => T.crearEquipo(tsuizo, u, `J${u}`));
+T.iniciarTorneo(tsuizo, formJug[0], false);
+for (let r = 1; r <= 3; r++) {
+  const ronda = T.partidasDe(tsuizo).filter((p) => p.ronda === r);
+  assert.equal(ronda.filter((p) => p.estado === "bye").length, 1, `ronda ${r}: un descanso`);
+  for (const p of ronda.filter((x) => x.estado === "pendiente")) T.reportarResultado(p.id, (p.id + r) % 3 === 0 ? "tablas" : "a", formJug[0], false);
+}
+assert.equal(T.torneo(tsuizo)!.estado, "finalizado");
+assert.equal(new Set(T.partidasDe(tsuizo).filter((p) => p.estado === "bye").map((p) => p.equipo_a)).size, 3, "nadie descansa dos veces");
+assert.equal(total(), dineroF);
+
 // --- Cola de recargas con reloj simulado ---
 db().prepare("UPDATE recargas SET estado = 'cancelada' WHERE estado IN ('en_cola', 'escuchando')").run();
 let reloj = Date.now() + 86_400_000;

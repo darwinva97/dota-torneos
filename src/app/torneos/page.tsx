@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
 import { costoInscripcion, listarTorneos } from "@/lib/torneos";
 import { soles } from "@/lib/dinero";
+import { nombreFormato } from "@/lib/formatos";
 import { Cargando, Dinero, Estado, Titulo, Vacio } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Torneos" };
@@ -67,6 +68,7 @@ async function Lista() {
                 <dt className="text-niebla">{t.juego === "ajedrez" ? "Ajedrez" : "Dota 2"}</dt>
                 <dd className="cifra text-lg">
                   {t.juego === "ajedrez" ? t.ritmo || "1 contra 1" : `${t.tam_equipo} contra ${t.tam_equipo}`}
+                  <span className="block text-sm font-normal text-niebla">{nombreFormato(t.juego, t.formato)}</span>
                 </dd>
               </div>
             </dl>
