@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
-import { listarMercados, type Mercado } from "@/lib/mercados";
+import { estadoParche, listarMercados, type Mercado } from "@/lib/mercados";
+import { soles } from "@/lib/dinero";
 import { Cargando, Dinero, Estado, Titulo, Vacio } from "@/components/ui";
 
 export const metadata: Metadata = { title: "Apuestas" };
@@ -59,6 +60,7 @@ function Tabla({ lista }: { lista: Mercado[] }) {
           <Link href={`/apuestas/${m.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-losa px-5 py-4 hover:bg-losa-alta">
             <span className="font-medium">{m.titulo}</span>
             <Estado estado={m.estado} />
+            <ChipParche m={m} />
             <span className="text-sm text-niebla">
               de {m.creador}, {m.apostadores} {m.apostadores === 1 ? "persona" : "personas"}
             </span>
@@ -67,5 +69,18 @@ function Tabla({ lista }: { lista: Mercado[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// En las parchadas abiertas, si ya pueden empezar o cuánto falta.
+function ChipParche({ m }: { m: Mercado }) {
+  if (m.modalidad !== "parche" || m.estado !== "abierto") return null;
+  const p = estadoParche(m.id);
+  if (!p) return null;
+  return p.parchada ? (
+    <Estado estado="resuelto" texto="Parchada" />
+  ) : (
+    <Estado estado="pendiente"
+      texto={p.a.total + p.b.total ? `Faltan ${soles(p.falta)} por ${p.bajo!.etiqueta}` : "Sin apuestas"} />
   );
 }

@@ -3,6 +3,7 @@ import { Formulario, Enviar } from "@/components/formulario";
 import { accionCrearTorneo } from "../../acciones/torneos";
 import { CamposInscripcion } from "./inscripcion";
 import { CamposPremio } from "./premio";
+import { CamposJuego } from "./juego";
 
 export const metadata: Metadata = { title: "Crear torneo" };
 
@@ -11,37 +12,16 @@ export default function NuevoTorneo() {
     <div className="max-w-xl">
       <h1 className="mb-2 text-5xl">Crear torneo</h1>
       <p className="mb-8 text-niebla">
-        Cada jugador paga la inscripción al unirse a un equipo. El pozo se reparte al terminar la final.
+        Cada jugador paga la inscripción al entrar. El premio se reparte al terminar la final.
       </p>
       <Formulario accion={accionCrearTorneo} className="space-y-5">
         <label className="block">
           <span className="etiqueta">Nombre</span>
           <input name="nombre" required placeholder="Copa del Barrio" className="campo" />
         </label>
+        <CamposJuego />
         <CamposInscripcion />
         <CamposPremio />
-        <div className="grid gap-5 sm:grid-cols-2">
-          <label className="block">
-            <span className="etiqueta">Jugadores por equipo</span>
-            <select name="tam_equipo" defaultValue="5" className="campo">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <option key={n} value={n}>
-                  {n} contra {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="etiqueta">Máximo de equipos</span>
-            <select name="max_equipos" defaultValue="4" className="campo">
-              {[2, 3, 4, 5, 6, 8, 12, 16].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
         <fieldset>
           <legend className="etiqueta">Reparto del pozo</legend>
           <div className="grid gap-3 sm:grid-cols-2">

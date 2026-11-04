@@ -25,6 +25,8 @@ export async function accionCrearTorneo(_: Estado, fd: FormData): Promise<Estado
       premioBase: txt(fd, "premio_base").trim() ? leerSoles(fd.get("premio_base")) : 0,
       sumaRecaudado: fd.get("premio_fijo") !== "on",
       tamEquipo: num(fd, "tam_equipo"),
+      juego: txt(fd, "juego") === "ajedrez" ? "ajedrez" : "dota2",
+      ritmo: txt(fd, "ritmo"),
       maxEquipos: num(fd, "max_equipos"),
       reparto: txt(fd, "reparto"),
       fecha: txt(fd, "fecha"),
@@ -48,7 +50,13 @@ async function ejecutar(fn: (u: Awaited<ReturnType<typeof exigirUsuario>>) => vo
 }
 
 export async function accionCrearEquipo(_: Estado, fd: FormData) {
-  return ejecutar((u) => T.crearEquipo(num(fd, "torneo_id"), u.id, txt(fd, "nombre")), "Equipo creado. Ya estás dentro.");
+  const torneoId = num(fd, "torneo_id");
+  // En ajedrez cada jugador es su propio «equipo», con su nombre de usuario.
+  const ajedrez = T.torneo(torneoId)?.juego === "ajedrez";
+  return ejecutar(
+    (u) => T.crearEquipo(torneoId, u.id, ajedrez ? u.usuario : txt(fd, "nombre")),
+    ajedrez ? "Inscrito. Ya estás dentro." : "Equipo creado. Ya estás dentro.",
+  );
 }
 
 export async function accionUnirse(_: Estado, fd: FormData) {
@@ -136,6 +144,8 @@ export async function accionApostarEnTorneo(_: Estado, fd: FormData): Promise<Es
         titulo,
         torneoId,
         partidaId,
+        // Partida o final de dos: parche 1 a 1. Campeón entre varios: pozo común.
+        modalidad: opciones.length === 2 ? "parche" : "pozo",
         opciones: opciones.map((e) => ({ etiqueta: e.nombre, equipoId: e.id })),
       });
   } catch (e) {

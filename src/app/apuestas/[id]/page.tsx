@@ -2,11 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
-import { jugadasDe, mercado, opcionesDe } from "@/lib/mercados";
+import { estadoParche, jugadasDe, mercado, mensajeSinParche, opcionesDe } from "@/lib/mercados";
+import { torneo } from "@/lib/torneos";
 import { soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
 import { Cargando, Dinero, Estado } from "@/components/ui";
-import { accionAnular, accionApostar, accionCerrarApuesta, accionResolver } from "../../acciones/apuestas";
+import {
+  accionAnular,
+  accionApostar,
+  accionCerrarApuesta,
+  accionDevolverNoParchado,
+  accionEmpatar,
+  accionResolver,
+  accionRetirarApuesta,
+} from "../../acciones/apuestas";
 
 export default function PaginaApuesta({ params }: PageProps<"/apuestas/[id]">) {
   return (
@@ -28,6 +37,11 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
   const cobrado = mias.reduce((s, j) => s + (j.pago ?? 0), 0);
   const gestiona = !!u.es_admin || (m.creador_id === u.id && !m.torneo_id);
   const viva = m.estado === "abierto" || m.estado === "cerrado";
+  const parche = estadoParche(m.id);
+  // Igualar también lo puede hacer quien organiza el torneo de la apuesta.
+  const puedeIgualar =
+    gestiona || (!!m.torneo_id && torneo(m.torneo_id)?.organizador_id === u.id);
+  const listaParaResolver = !parche || parche.parchada;
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[1fr_22rem]">
@@ -48,6 +62,8 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
           </p>
           {m.descripcion && <p className="mt-3 max-w-[64ch] whitespace-pre-line">{m.descripcion}</p>}
         </header>
+
+        {parche && viva && <PanelParche p={parche} puedeIgualar={puedeIgualar} mercadoId={m.id} />}
 
         <section aria-label="Opciones" className="space-y-3">
           {opciones.map((o) => {
@@ -76,11 +92,13 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                   <Dinero centimos={o.total} className="text-2xl" />
                 </div>
                 {m.estado === "abierto" && (
-                <p className="relative mt-1 text-sm text-niebla">
-                  {cuota
-                    ? `Si gana, cada sol apostado aquí cobra ${soles(Math.floor(cuota * 100))} con el pozo actual.`
-                    : "Nadie ha apostado por esta todavía."}
-                </p>
+                  <p className="relative mt-1 text-sm text-niebla">
+                    {parche
+                      ? "Si gana este bando, cada uno cobra el doble de lo que puso."
+                      : cuota
+                        ? `Si gana, cada sol apostado aquí cobra ${soles(Math.floor(cuota * 100))} con el pozo actual.`
+                        : "Nadie ha apostado por esta todavía."}
+                  </p>
                 )}
               </div>
             );
@@ -158,7 +176,10 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                 <span className="pl-3 text-niebla">S/</span>
                 <input name="monto" required inputMode="decimal" placeholder="10" className="w-full bg-transparent px-2 py-2 focus:outline-none" />
               </div>
-              <span className="ayuda">Tienes {soles(u.saldo)}.</span>
+              <span className="ayuda">
+                Tienes {soles(u.saldo)}.
+                {parche?.bajo && ` Para parchar faltan ${soles(parche.falta)} por ${parche.bajo.etiqueta}.`}
+              </span>
             </label>
             <Enviar className="w-full">Apostar</Enviar>
           </Formulario>
@@ -180,21 +201,31 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                 <Dinero centimos={cobrado} className="text-3xl" />
               </>
             )}
+            {m.estado === "abierto" && (
+              <Formulario accion={accionRetirarApuesta} confirmar="¿Retirar tu apuesta? Vuelve a tu saldo." className="mt-3">
+                <input type="hidden" name="mercado_id" value={m.id} />
+                <Enviar variante="boton-sobrio" className="w-full py-1.5 text-sm">
+                  Retirar mi apuesta
+                </Enviar>
+              </Formulario>
+            )}
           </div>
         )}
 
         {gestiona && viva && (
           <div className="panel space-y-4 p-5">
             <h2 className="text-2xl">Gestionar</h2>
-            {m.estado === "abierto" && (
+            {!listaParaResolver && parche && <p className="text-sm text-dire-claro">{mensajeSinParche(parche)}</p>}
+            {m.estado === "abierto" && listaParaResolver && (
               <Formulario accion={accionCerrarApuesta}>
                 <input type="hidden" name="mercado_id" value={m.id} />
                 <Enviar variante="boton-sobrio" className="w-full">
-                  Cerrar jugadas
+                  Cerrar jugadas y empezar
                 </Enviar>
                 <p className="ayuda">Ciérrala cuando empiece lo que se apuesta.</p>
               </Formulario>
             )}
+            {listaParaResolver && (
             <Formulario accion={accionResolver} confirmar="¿Seguro? Se paga a los ganadores y no se puede deshacer.">
               <input type="hidden" name="mercado_id" value={m.id} />
               <label className="block">
@@ -209,6 +240,15 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
               </label>
               <Enviar className="mt-3 w-full">Resolver y pagar</Enviar>
             </Formulario>
+            )}
+            {parche && (
+              <Formulario accion={accionEmpatar} confirmar="¿Empate? Se devuelve lo apostado a todos.">
+                <input type="hidden" name="mercado_id" value={m.id} />
+                <Enviar variante="boton-sobrio" className="w-full">
+                  Empate o tablas: devolver a todos
+                </Enviar>
+              </Formulario>
+            )}
             <Formulario accion={accionAnular} confirmar="¿Anular? Se devuelve lo apostado a todos.">
               <input type="hidden" name="mercado_id" value={m.id} />
               <Enviar variante="boton-peligro" className="w-full">
@@ -219,5 +259,66 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
         )}
       </aside>
     </div>
+  );
+}
+
+// Los dos bandos frente a frente: cuánto hay en cada uno y cuánto falta.
+function PanelParche({
+  p,
+  puedeIgualar,
+  mercadoId,
+}: {
+  p: NonNullable<ReturnType<typeof estadoParche>>;
+  puedeIgualar: boolean;
+  mercadoId: number;
+}) {
+  const total = p.a.total + p.b.total;
+  const parteA = total ? (p.a.total / total) * 100 : 50;
+  return (
+    <section
+      aria-label="Parche"
+      className={`panel space-y-3 p-5 ${p.parchada ? "border-radiant/50" : "border-oro/40"}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-2xl">Parche 1 a 1</h2>
+        <Estado
+          estado={p.parchada ? "resuelto" : "pendiente"}
+          texto={p.parchada ? "Parchada: puede empezar" : "Sin parchar"}
+        />
+      </div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span>
+          <span className="block text-sm text-niebla">{p.a.etiqueta}</span>
+          <span className="cifra text-3xl text-oro">{soles(p.a.total)}</span>
+        </span>
+        <span className="cifra text-2xl text-niebla">{p.parchada ? "=" : "≠"}</span>
+        <span className="text-right">
+          <span className="block text-sm text-niebla">{p.b.etiqueta}</span>
+          <span className="cifra text-3xl text-oro">{soles(p.b.total)}</span>
+        </span>
+      </div>
+      <div className="flex h-2 overflow-hidden rounded-full bg-white/10" aria-hidden>
+        <div className="h-full bg-oro" style={{ width: `${parteA}%` }} />
+        <div className="h-full flex-1 bg-mana" />
+      </div>
+      <p className="text-sm text-niebla">
+        {p.parchada
+          ? "Los dos bandos pusieron lo mismo. Quien gane cobra el doble de lo que apostó."
+          : p.a.total + p.b.total === 0
+            ? "Nadie ha apostado todavía. El evento solo puede empezar cuando los dos bandos pongan lo mismo."
+            : `Faltan ${soles(p.falta)} por ${p.bajo!.etiqueta} para que pueda empezar. También pueden retirar lo que sobra.`}
+      </p>
+      {!p.parchada && p.a.total + p.b.total > 0 && puedeIgualar && (
+        <Formulario
+          accion={accionDevolverNoParchado}
+          confirmar="Se devuelve lo que sobra del bando que puso de más, empezando por las últimas apuestas. ¿Seguir?"
+        >
+          <input type="hidden" name="mercado_id" value={mercadoId} />
+          <Enviar variante="boton-sobrio" className="py-1.5 text-sm">
+            Devolver lo no parchado
+          </Enviar>
+        </Formulario>
+      )}
+    </section>
   );
 }

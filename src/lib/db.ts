@@ -207,6 +207,11 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   ["recargas", "disponible_desde", "INTEGER NOT NULL DEFAULT 0"],
   ["recargas", "fin", "INTEGER NOT NULL DEFAULT 0"],
   ["recargas", "visto", "INTEGER NOT NULL DEFAULT 0"],
+  // Modalidad de la apuesta. Las anteriores al parche quedan como «pozo».
+  ["mercados", "modalidad", "TEXT NOT NULL DEFAULT 'pozo'"],
+  // Juego del torneo y, en ajedrez, el ritmo («blitz 3+2»).
+  ["torneos", "juego", "TEXT NOT NULL DEFAULT 'dota2'"],
+  ["torneos", "ritmo", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 function migrar(db: Database.Database) {

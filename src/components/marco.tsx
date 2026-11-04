@@ -4,7 +4,6 @@ import { Bell, LogOut, Plus } from "lucide-react";
 import { usuarioActual } from "@/lib/sesion";
 import { solicitudesPendientes } from "@/lib/billetera";
 import { accionSalir } from "@/app/acciones/cuenta";
-import { accionAbrirRecarga } from "@/app/acciones/billetera";
 import { Dinero } from "./ui";
 import { EnlacesNav, NavActiva } from "./navegacion";
 
@@ -100,15 +99,14 @@ async function CuentaConDatos() {
         <Link href="/billetera" className="px-3 py-1.5 text-lg hover:bg-white/5" title="Tu saldo">
           <Dinero centimos={u.saldo} />
         </Link>
-        <form action={accionAbrirRecarga}>
-          <button
-            className="flex h-full items-center border-l border-oro/30 bg-oro/10 px-2.5 py-2 text-oro hover:bg-oro/20"
-            title="Recargar con Yape"
-            aria-label="Recargar con Yape"
-          >
-            <Plus className="size-5" strokeWidth={2.25} aria-hidden />
-          </button>
-        </form>
+        <Link
+          href="/billetera/recargar"
+          className="flex h-full items-center border-l border-oro/30 bg-oro/10 px-2.5 py-2 text-oro hover:bg-oro/20"
+          title="Recargar con Yape"
+          aria-label="Recargar con Yape"
+        >
+          <Plus className="size-5" strokeWidth={2.25} aria-hidden />
+        </Link>
       </div>
       {u.es_admin ? (
         <Link

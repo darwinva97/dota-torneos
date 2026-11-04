@@ -1,13 +1,23 @@
 import "server-only";
 import { db, transaccion } from "./db";
-import { exigir } from "./errores";
+import { ErrorUsuario, exigir } from "./errores";
+import { soles } from "./dinero";
 import { exigirSinDeudas, mover } from "./billetera";
 
-// Apuestas aparte de la inscripción. Cada mercado es una pregunta con varias
-// opciones; todo lo apostado va a un pozo común y quienes aciertan se lo
-// reparten en proporción a lo que pusieron. No hay casa: no se queda nada.
+// Apuestas aparte de la inscripción. Dos modalidades:
+//
+//  - «parche» (la de por defecto): dos bandos, y el evento solo puede empezar
+//    (cerrar jugadas) o resolverse cuando lo apostado a cada bando es igual.
+//    Así quien gana cobra exactamente el doble de lo que puso. Mientras no esté
+//    parchada, cada uno puede retirar su apuesta, y quien la gestiona puede
+//    devolver lo que sobra del bando que puso de más.
+//  - «pozo»: varias opciones; todo va a un pozo común y quienes aciertan se lo
+//    reparten en proporción a lo que pusieron.
+//
+// En ambas no hay casa: no se queda nada.
 
 export type EstadoMercado = "abierto" | "cerrado" | "resuelto" | "anulado";
+export type Modalidad = "parche" | "pozo";
 
 export type Mercado = {
   id: number;
@@ -19,6 +29,7 @@ export type Mercado = {
   opcion_ganadora: number | null;
   torneo_id: number | null;
   partida_id: number | null;
+  modalidad: Modalidad;
   creado: string;
   pozo: number;
   apostadores: number;
@@ -49,8 +60,10 @@ export function crearMercado(d: {
   opciones: { etiqueta: string; equipoId?: number }[];
   torneoId?: number;
   partidaId?: number;
+  modalidad?: Modalidad;
 }) {
   const titulo = d.titulo.trim();
+  const modalidad = d.modalidad ?? "parche";
   exigir(titulo.length >= 4, "Escribe sobre qué es la apuesta.");
   const opciones = d.opciones.filter((o) => o.etiqueta.trim());
   exigir(opciones.length >= 2, "Pon al menos dos opciones.");
@@ -58,12 +71,13 @@ export function crearMercado(d: {
     new Set(opciones.map((o) => o.etiqueta.trim().toLowerCase())).size === opciones.length,
     "Hay opciones repetidas.",
   );
+  exigir(modalidad === "pozo" || opciones.length === 2, "Una apuesta parchada tiene exactamente dos bandos.");
   return transaccion(() => {
     const r = db()
       .prepare(
-        "INSERT INTO mercados (creador_id, titulo, descripcion, torneo_id, partida_id) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO mercados (creador_id, titulo, descripcion, torneo_id, partida_id, modalidad) VALUES (?, ?, ?, ?, ?, ?)",
       )
-      .run(d.creadorId, titulo, d.descripcion?.trim() ?? "", d.torneoId ?? null, d.partidaId ?? null);
+      .run(d.creadorId, titulo, d.descripcion?.trim() ?? "", d.torneoId ?? null, d.partidaId ?? null, modalidad);
     const id = Number(r.lastInsertRowid);
     const ins = db().prepare("INSERT INTO opciones (mercado_id, etiqueta, equipo_id) VALUES (?, ?, ?)");
     for (const o of opciones) ins.run(id, o.etiqueta.trim(), o.equipoId ?? null);
@@ -131,8 +145,113 @@ export function apostar(usuarioId: number, mercadoId: number, opcionId: number, 
   });
 }
 
+// --- Parche ---
+
+export type Parche = {
+  a: { id: number; etiqueta: string; total: number };
+  b: { id: number; etiqueta: string; total: number };
+  parchada: boolean;
+  /** Lo que le falta al bando que va por debajo para igualar. */
+  falta: number;
+  /** El bando que va por debajo (null si están iguales). */
+  bajo: { id: number; etiqueta: string } | null;
+};
+
+export function estadoParche(mercadoId: number): Parche | null {
+  const m = db().prepare("SELECT modalidad FROM mercados WHERE id = ?").get(mercadoId) as
+    | { modalidad: Modalidad }
+    | undefined;
+  if (m?.modalidad !== "parche") return null;
+  const [a, b] = opcionesDe(mercadoId);
+  const falta = Math.abs(a.total - b.total);
+  return {
+    a: { id: a.id, etiqueta: a.etiqueta, total: a.total },
+    b: { id: b.id, etiqueta: b.etiqueta, total: b.total },
+    parchada: falta === 0 && a.total > 0,
+    falta,
+    bajo: falta === 0 ? null : a.total < b.total ? a : b,
+  };
+}
+
+export function mensajeSinParche(p: Parche, titulo?: string) {
+  const cual = titulo ? `«${titulo}» no está parchada` : "La apuesta no está parchada";
+  if (p.a.total === 0 && p.b.total === 0) return `${cual}: nadie ha apostado todavía.`;
+  return `${cual}: ${p.a.etiqueta} tiene ${soles(p.a.total)} y ${p.b.etiqueta} ${soles(p.b.total)}. Faltan ${soles(p.falta)} por ${p.bajo!.etiqueta}, o devuelve lo que sobra.`;
+}
+
+function exigirParchada(mercadoId: number, titulo?: string) {
+  const p = estadoParche(mercadoId);
+  if (p && !p.parchada) throw new ErrorUsuario(mensajeSinParche(p, titulo));
+}
+
+// Mientras la apuesta está abierta, cada uno puede retirar lo que apostó.
+export function retirarApuesta(usuarioId: number, mercadoId: number) {
+  transaccion(() => {
+    const m = mercado(mercadoId);
+    exigir(m, "Esa apuesta no existe.");
+    exigir(m.estado === "abierto", "Ya no se puede retirar: la apuesta está cerrada.");
+    const mias = jugadasDe(mercadoId).filter((j) => j.usuario_id === usuarioId);
+    exigir(mias.length > 0, "No tienes nada apostado aquí.");
+    const total = mias.reduce((s, j) => s + j.monto, 0);
+    db().prepare("DELETE FROM jugadas WHERE mercado_id = ? AND usuario_id = ?").run(mercadoId, usuarioId);
+    mover(usuarioId, total, "apuesta_devuelta", `Retiraste tu apuesta: ${m.titulo}`);
+  });
+}
+
+// Devuelve lo que sobra del bando que puso de más, empezando por las últimas
+// jugadas, hasta que los dos bandos queden iguales. Si un bando está vacío, se
+// devuelve todo y la apuesta queda anulada.
+export function devolverNoParchado(mercadoId: number) {
+  transaccion(() => {
+    const m = mercado(mercadoId);
+    exigir(m && (m.estado === "abierto" || m.estado === "cerrado"), "Esta apuesta ya está cerrada del todo.");
+    const p = estadoParche(mercadoId);
+    exigir(p, "Solo las apuestas parchadas se igualan.");
+    if (p.falta === 0) return;
+    if (Math.min(p.a.total, p.b.total) === 0) {
+      anularMercado(mercadoId, "Nadie apostó al otro bando, se devuelve");
+      return;
+    }
+    const alto = p.a.total > p.b.total ? p.a : p.b;
+    let exceso = p.falta;
+    const jugadas = jugadasDe(mercadoId)
+      .filter((j) => j.opcion_id === alto.id)
+      .reverse();
+    for (const j of jugadas) {
+      if (exceso === 0) break;
+      const devuelto = Math.min(j.monto, exceso);
+      exceso -= devuelto;
+      if (devuelto === j.monto) db().prepare("DELETE FROM jugadas WHERE id = ?").run(j.id);
+      else db().prepare("UPDATE jugadas SET monto = monto - ? WHERE id = ?").run(devuelto, j.id);
+      mover(j.usuario_id, devuelto, "apuesta_devuelta", `No se parchó, se devuelve: ${m.titulo}`);
+    }
+  });
+}
+
+// Comprueba que todas las apuestas parchadas ligadas a una partida (y, si es
+// la final, las del campeón) estén iguales antes de empezarla o resolverla.
+export function exigirParchadasDePartida(partidaId: number, torneoCampeon?: number) {
+  const ligadas = db()
+    .prepare(
+      `SELECT id, titulo FROM mercados WHERE estado IN ('abierto', 'cerrado') AND modalidad = 'parche'
+       AND (partida_id = ? OR (? IS NOT NULL AND torneo_id = ? AND partida_id IS NULL))`,
+    )
+    .all(partidaId, torneoCampeon ?? null, torneoCampeon ?? null) as { id: number; titulo: string }[];
+  for (const m of ligadas) {
+    // Una apuesta sin jugadas no bloquea: se anula al resolver.
+    const p = estadoParche(m.id)!;
+    if (p.a.total === 0 && p.b.total === 0) continue;
+    exigirParchada(m.id, m.titulo);
+  }
+}
+
 export function cerrarMercado(mercadoId: number) {
+  exigirParchada(mercadoId);
   db().prepare("UPDATE mercados SET estado = 'cerrado' WHERE id = ? AND estado = 'abierto'").run(mercadoId);
+}
+
+export function empatar(mercadoId: number) {
+  anularMercado(mercadoId, "Empate, se devuelve");
 }
 
 export function anularMercado(mercadoId: number, motivo = "Apuesta anulada") {
@@ -166,6 +285,7 @@ export function resolverMercado(mercadoId: number, opcionId: number) {
       db().prepare("UPDATE mercados SET opcion_ganadora = ? WHERE id = ?").run(opcionId, mercadoId);
       return;
     }
+    exigirParchada(mercadoId);
 
     const pozo = jugadas.reduce((s, j) => s + j.monto, 0);
     const acertado = ganadoras.reduce((s, j) => s + j.monto, 0);
@@ -212,6 +332,7 @@ export function resolverPorEquipo(filtro: { partidaId: number } | { torneoCampeo
 }
 
 export function cerrarPorPartida(partidaId: number) {
+  exigirParchadasDePartida(partidaId);
   db()
     .prepare("UPDATE mercados SET estado = 'cerrado' WHERE partida_id = ? AND estado = 'abierto'")
     .run(partidaId);

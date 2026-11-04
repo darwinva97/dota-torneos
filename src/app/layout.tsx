@@ -27,7 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <nav aria-label="Principal">
             <Navegacion variante="lateral" />
           </nav>
-          <p className="mt-auto px-3 text-xs text-niebla/70">Dota 2 entre amigos. Juega con lo que puedas perder.</p>
+          <p className="mt-auto px-3 text-xs text-niebla/70">Dota 2 y ajedrez entre amigos. Juega con lo que puedas perder.</p>
         </aside>
 
         <div className="flex min-h-dvh min-w-0 flex-col">

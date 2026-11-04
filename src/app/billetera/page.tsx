@@ -9,7 +9,6 @@ import { recargaAbiertaDe, recargasDe } from "@/lib/yape/recargas";
 import { soles } from "@/lib/dinero";
 import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/components/ui";
 import { ListaMovimientos } from "@/components/movimientos";
-import { accionAbrirRecarga } from "../acciones/billetera";
 
 export const metadata: Metadata = { title: "Billetera" };
 
@@ -62,11 +61,9 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/billetera
                 <ArrowDownToLine className="size-5" aria-hidden /> Seguir con tu recarga
               </Link>
             ) : (
-              <form action={accionAbrirRecarga}>
-                <button className="boton">
-                  <ArrowDownToLine className="size-5" aria-hidden /> Recargar con Yape
-                </button>
-              </form>
+              <Link href="/billetera/recargar" className="boton">
+                <ArrowDownToLine className="size-5" aria-hidden /> Recargar con Yape
+              </Link>
             )}
             <Link href="/billetera/retirar" className="boton-sobrio">
               <ArrowUpFromLine className="size-5" aria-hidden /> Retirar

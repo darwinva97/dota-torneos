@@ -97,7 +97,7 @@ assert.equal(partidas.filter((p) => p.estado === "bye").length, 1);
 // Apuesta parimutuel sobre la primera partida jugable.
 const jugable = partidas.find((p) => p.ronda === 1 && p.estado === "pendiente")!;
 const mid = M.crearMercado({
-  creadorId: jugadores[0], titulo: "Partida 1", torneoId: tid, partidaId: jugable.id,
+  creadorId: jugadores[0], titulo: "Partida 1", torneoId: tid, partidaId: jugable.id, modalidad: "pozo",
   opciones: [{ etiqueta: "a", equipoId: jugable.equipo_a! }, { etiqueta: "b", equipoId: jugable.equipo_b! }],
 });
 const [oa, ob] = M.opcionesDe(mid);
@@ -130,7 +130,7 @@ const premios = conn.prepare("SELECT SUM(monto) s FROM movimientos WHERE tipo = 
 assert.equal(premios.s, 6000);
 
 // Apuesta libre que nadie acierta: se devuelve todo.
-const libreId = M.crearMercado({ creadorId: jugadores[3], titulo: "¿Llueve?", opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] });
+const libreId = M.crearMercado({ creadorId: jugadores[3], titulo: "¿Llueve?", modalidad: "pozo", opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] });
 const [si, no] = M.opcionesDe(libreId);
 M.apostar(jugadores[3], libreId, si.id, 500);
 M.resolverMercado(libreId, no.id);
@@ -295,6 +295,69 @@ db().prepare("UPDATE recargas SET estado = 'vencida', fin = ? WHERE id = ?").run
 assert.equal(R.pagosLibresDeVentana(R.recarga(rv)!).length, 1);
 R.reclamarPago(rv, tardio, pv.nuevo ? pv.pagoId : 0);
 assert.equal(R.recarga(rv)!.estado, "revision");
+
+// --- Parche: el evento solo empieza o se resuelve con los dos bandos iguales ---
+const pa = nuevo("parcheA", "Pablo Ruiz");
+const pb = nuevo("parcheB", "Bruno Diaz");
+const pc = nuevo("parcheC", "Cesar Lima");
+for (const [k, u] of [pa, pb, pc].entries()) {
+  R.abrirRecarga(u);
+  R.ingresarPago({ externoId: `parche-${k}`, monto: 5000, nombre: ["Pablo Ruiz", "Bruno Diaz", "Cesar Lima"][k], recibido: Date.now(), fuente: "test" });
+}
+assert.throws(() => M.crearMercado({ creadorId: pa, titulo: "Tres bandos", opciones: [{ etiqueta: "x" }, { etiqueta: "y" }, { etiqueta: "z" }] }), /dos bandos/);
+const mp = M.crearMercado({ creadorId: pa, titulo: "Ajedrez Pablo vs Bruno", opciones: [{ etiqueta: "Pablo" }, { etiqueta: "Bruno" }] });
+assert.equal(M.mercado(mp)!.modalidad, "parche", "parche por defecto");
+const [opP, opB] = M.opcionesDe(mp);
+M.apostar(pa, mp, opP.id, 2000);
+M.apostar(pb, mp, opB.id, 1200);
+assert.equal(M.estadoParche(mp)!.falta, 800);
+assert.throws(() => M.cerrarMercado(mp), /no está parchada.*Faltan S\/ 8.00 por Bruno/);
+assert.throws(() => M.resolverMercado(mp, opP.id), /no está parchada/);
+// Cesar entra por Bruno pero se pasa: ahora sobra en el bando de Bruno.
+M.apostar(pc, mp, opB.id, 1000);
+assert.equal(M.estadoParche(mp)!.bajo!.etiqueta, "Pablo");
+// Cesar se arrepiente y retira; vuelve a faltar 8 por Bruno.
+const sc = saldo(pc);
+M.retirarApuesta(pc, mp);
+assert.equal(saldo(pc) - sc, 1000);
+// Se devuelve lo no parchado: a Pablo le vuelven 8 y quedan 12 contra 12.
+const sp = saldo(pa);
+M.devolverNoParchado(mp);
+assert.equal(saldo(pa) - sp, 800);
+assert.ok(M.estadoParche(mp)!.parchada);
+M.cerrarMercado(mp);
+assert.throws(() => M.retirarApuesta(pb, mp), /cerrada/);
+const sb = saldo(pb);
+M.resolverMercado(mp, opB.id);
+assert.equal(saldo(pb) - sb, 2400, "quien gana el parche cobra el doble");
+// Empate (tablas): se devuelve a todos.
+const me = M.crearMercado({ creadorId: pa, titulo: "Revancha", opciones: [{ etiqueta: "Pablo" }, { etiqueta: "Bruno" }] });
+const [eP, eB] = M.opcionesDe(me);
+M.apostar(pa, me, eP.id, 500);
+M.apostar(pb, me, eB.id, 500);
+const antesEmpate = [saldo(pa), saldo(pb)];
+M.empatar(me);
+assert.deepEqual([saldo(pa) - antesEmpate[0], saldo(pb) - antesEmpate[1]], [500, 500]);
+// Un bando vacío: devolver lo no parchado anula la apuesta.
+const mv = M.crearMercado({ creadorId: pa, titulo: "Sin rival", opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] });
+M.apostar(pa, mv, M.opcionesDe(mv)[0].id, 300);
+M.devolverNoParchado(mv);
+assert.equal(M.mercado(mv)!.estado, "anulado");
+// En un torneo, la partida no puede empezar ni resolverse sin parchar.
+const tp = T.crearTorneo({ organizadorId: pa, nombre: "Ajedrez blitz", descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true, juego: "ajedrez", ritmo: "blitz 3+2" });
+assert.equal(T.torneo(tp)!.juego, "ajedrez");
+T.crearEquipo(tp, pa, "Pablo");
+T.crearEquipo(tp, pb, "Bruno");
+T.iniciarTorneo(tp, pa, false);
+const ptd = T.partidasDe(tp)[0];
+const mpt = M.crearMercado({ creadorId: pc, titulo: "Final", torneoId: tp, partidaId: ptd.id, opciones: T.equiposDe(tp).map((e) => ({ etiqueta: e.nombre, equipoId: e.id })) });
+M.apostar(pc, mpt, M.opcionesDe(mpt)[0].id, 700);
+assert.throws(() => T.marcarEnJuego(ptd.id, pa, false), /no está parchada/);
+assert.throws(() => T.reportarGanador(ptd.id, ptd.equipo_a!, pa, false), /no está parchada/);
+M.apostar(pb, mpt, M.opcionesDe(mpt)[1].id, 700);
+T.marcarEnJuego(ptd.id, pa, false);
+T.reportarGanador(ptd.id, M.opcionesDe(mpt)[0].equipo_id!, pa, false);
+assert.equal(M.mercado(mpt)!.estado, "resuelto");
 
 // --- Cola de recargas con reloj simulado ---
 db().prepare("UPDATE recargas SET estado = 'cancelada' WHERE estado IN ('en_cola', 'escuchando')").run();

@@ -5,6 +5,7 @@ import { exigirUsuario, type Usuario } from "@/lib/sesion";
 import {
   costoInscripcion,
   equiposDe,
+  nombreJuego,
   partidasDe,
   torneo,
   type Equipo,
@@ -57,7 +58,8 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
           <h1 className="text-5xl sm:text-6xl">{t.nombre}</h1>
           <p className="mt-2 text-niebla">
             Organiza {t.organizador}
-            {t.fecha ? `. Se juega ${t.fecha}` : ""}. Equipos de {t.tam_equipo},{" "}
+            {t.fecha ? `. Se juega ${t.fecha}` : ""}.{" "}
+            {t.juego === "ajedrez" ? `${nombreJuego(t)}, uno contra uno` : `Dota 2, equipos de ${t.tam_equipo}`},{" "}
             {t.reparto === "70-30" ? "70 % al campeón y 30 % al subcampeón" : "todo al campeón"}.
           </p>
           <p className="mt-2">{textoInscripcion(t)}</p>
@@ -116,7 +118,7 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
 
       {t.estado !== "inscripciones" && equipos.length > 0 && (
         <section>
-          <h2 className="mb-4 text-3xl">Equipos</h2>
+          <h2 className="mb-4 text-3xl">{t.juego === "ajedrez" ? "Jugadores" : "Equipos"}</h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {equipos.map((e) => (
               <TarjetaEquipo key={e.id} e={e} t={t} />
@@ -185,12 +187,13 @@ function Inscripciones({
 }) {
   const hayHueco = equipos.length < t.max_equipos;
   const costo = costoInscripcion(t);
+  const ajedrez = t.juego === "ajedrez";
   const sinMarcar = equipos.flatMap((e) => e.integrantes).filter((i) => i.garantia > 0 && !i.asistencia).length;
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-3xl">
-          Equipos{" "}
+          {ajedrez ? "Jugadores" : "Equipos"}{" "}
           <span className="cifra text-niebla">
             {equipos.length} de {t.max_equipos}
           </span>
@@ -224,7 +227,11 @@ function Inscripciones({
       )}
 
       {equipos.length === 0 ? (
-        <Vacio>Aún no hay equipos. Crea el tuyo abajo y comparte el enlace de esta página.</Vacio>
+        <Vacio>
+          {ajedrez
+            ? "Aún no hay nadie inscrito. Inscríbete abajo y comparte el enlace de esta página."
+            : "Aún no hay equipos. Crea el tuyo abajo y comparte el enlace de esta página."}
+        </Vacio>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {equipos.map((e) => (
@@ -246,7 +253,7 @@ function Inscripciones({
         <Formulario accion={accionSalirTorneo} confirmar="¿Salir del torneo? Te devolvemos todo lo que pagaste.">
           <input type="hidden" name="torneo_id" value={t.id} />
           <p className="mb-2 text-niebla">
-            Estás en <span className="text-pergamino">{miEquipo.nombre}</span>
+            {ajedrez ? "Estás inscrito" : <>Estás en <span className="text-pergamino">{miEquipo.nombre}</span></>}
             {costo > 0 ? ` y pagaste ${soles(costo)}` : ""}.
             {t.garantia > 0 && ` Recuerda: si no llegas a tiempo, tus ${soles(t.garantia)} de garantía van al pozo.`}
           </p>
@@ -255,11 +262,20 @@ function Inscripciones({
       ) : hayHueco ? (
         <Formulario accion={accionCrearEquipo} className="panel flex max-w-xl flex-wrap items-end gap-3 p-4">
           <input type="hidden" name="torneo_id" value={t.id} />
-          <label className="min-w-48 flex-1">
-            <span className="etiqueta">Crear un equipo nuevo</span>
-            <input name="nombre" required placeholder="Nombre del equipo" className="campo" />
-          </label>
-          <Enviar>Crear{costo > 0 ? ` y pagar ${soles(costo)}` : ""}</Enviar>
+          {ajedrez ? (
+            <p className="min-w-48 flex-1">
+              Juegas con tu usuario, <span className="text-pergamino">{u.usuario}</span>.
+            </p>
+          ) : (
+            <label className="min-w-48 flex-1">
+              <span className="etiqueta">Crear un equipo nuevo</span>
+              <input name="nombre" required placeholder="Nombre del equipo" className="campo" />
+            </label>
+          )}
+          <Enviar>
+            {ajedrez ? "Inscribirme" : "Crear"}
+            {costo > 0 ? ` y pagar ${soles(costo)}` : ""}
+          </Enviar>
           {u.saldo < costo && (
             <p className="basis-full text-sm text-niebla">
               Tienes {soles(u.saldo)}.{" "}
@@ -293,16 +309,18 @@ function TarjetaEquipo({
     <div className={`panel p-4 ${gano ? "border-oro/60" : ""}`}>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h3 className="text-xl">{e.nombre}</h3>
-        <span className="cifra text-niebla">
-          {e.integrantes.length}/{t.tam_equipo}
-        </span>
+        {t.tam_equipo > 1 && (
+          <span className="cifra text-niebla">
+            {e.integrantes.length}/{t.tam_equipo}
+          </span>
+        )}
       </div>
       <ul className="space-y-1">
         {e.integrantes.map((i) => (
           <li key={i.usuario_id} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
             <span>
               {i.usuario}
-              {i.usuario_id === e.capitan_id && <span className="text-niebla"> (capitán)</span>}
+              {t.tam_equipo > 1 && i.usuario_id === e.capitan_id && <span className="text-niebla"> (capitán)</span>}
             </span>
             {conGarantia && i.garantia > 0 ? (
               marcarAsistencia && t.estado === "inscripciones" ? (

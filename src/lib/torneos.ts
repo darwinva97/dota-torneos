@@ -4,16 +4,22 @@ import { db, transaccion } from "./db";
 import { exigir } from "./errores";
 import { exigirSinDeudas, mover } from "./billetera";
 import { soles } from "./dinero";
-import { anularMercado, cerrarPorPartida, resolverPorEquipo } from "./mercados";
+import { anularMercado, cerrarPorPartida, exigirParchadasDePartida, resolverPorEquipo } from "./mercados";
 
 export type EstadoTorneo = "inscripciones" | "en_curso" | "finalizado" | "cancelado";
 export type Reparto = "ganador" | "70-30";
 
 export type Asistencia = "a_tiempo" | "falto" | null;
 
+import type { Juego } from "./juegos";
+export { RITMOS_AJEDREZ, nombreJuego, type Juego } from "./juegos";
+
 export type Torneo = {
   id: number;
   nombre: string;
+  juego: Juego;
+  /** Solo en ajedrez: modalidad y ritmo, como «blitz 3+2». */
+  ritmo: string;
   descripcion: string;
   /** Lo que cada jugador pone al pozo. */
   entrada: number;
@@ -135,7 +141,15 @@ export function crearTorneo(d: {
   fecha: string;
   premioBase: number | null;
   sumaRecaudado: boolean;
+  juego?: Juego;
+  ritmo?: string;
 }) {
+  const juego = d.juego ?? "dota2";
+  exigir(juego === "dota2" || juego === "ajedrez", "Elige el juego.");
+  // El ajedrez se juega uno contra uno.
+  if (juego === "ajedrez") d.tamEquipo = 1;
+  const ritmo = juego === "ajedrez" ? (d.ritmo ?? "").trim() : "";
+  exigir(juego !== "ajedrez" || ritmo.length >= 3, "Elige la modalidad de ajedrez o escribe el ritmo, por ejemplo 3+2.");
   exigir(d.nombre.trim().length >= 3, "Ponle un nombre al torneo.");
   exigir(d.premioBase !== null && d.premioBase >= 0, "Escribe el premio base en soles, o 0 si no pones nada.");
   exigir(
@@ -151,8 +165,8 @@ export function crearTorneo(d: {
     const r = db()
       .prepare(
         `INSERT INTO torneos (nombre, descripcion, entrada, garantia, limite_llegada, tam_equipo, max_equipos,
-           reparto, organizador_id, fecha, premio_base, suma_recaudado)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reparto, organizador_id, fecha, premio_base, suma_recaudado, juego, ritmo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         d.nombre.trim(),
@@ -167,6 +181,8 @@ export function crearTorneo(d: {
         d.fecha.trim(),
         d.premioBase,
         d.sumaRecaudado ? 1 : 0,
+        juego,
+        ritmo,
       );
     // El premio base sale del saldo del organizador y queda reservado.
     if (d.premioBase! > 0) {
@@ -394,6 +410,12 @@ export function reportarGanador(partidaId: number, equipoId: number, usuarioId: 
     exigir(pt.estado === "pendiente" || pt.estado === "en_juego", "Esa partida ya tiene resultado.");
     exigir(pt.equipo_a && pt.equipo_b, "Todavía falta un equipo en esa partida.");
     exigir(equipoId === pt.equipo_a || equipoId === pt.equipo_b, "Ese equipo no juega esta partida.");
+    const esFinal = !db()
+      .prepare("SELECT 1 FROM partidas WHERE torneo_id = ? AND ronda > ?")
+      .get(t.id, pt.ronda);
+    // Las apuestas parchadas de la partida (y del campeón, en la final) deben
+    // estar iguales antes de resolverse.
+    exigirParchadasDePartida(partidaId, esFinal ? t.id : undefined);
 
     db().prepare("UPDATE partidas SET ganador = ?, estado = 'jugada' WHERE id = ?").run(equipoId, partidaId);
     resolverPorEquipo({ partidaId }, equipoId);

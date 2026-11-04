@@ -12,8 +12,20 @@ https://apuestas.bezenti.com.
   - **Premio base**: el organizador puede poner un monto de su saldo (y subirlo
     después). Por defecto se le suma lo recaudado; con «premio fijo» el premio es
     solo la base y lo recaudado vuelve al organizador al terminar.
-- **Apuestas aparte**: pozo común (parimutuel). Pueden ser libres (las resuelve quien
-  las crea) o sobre una partida o el campeón de un torneo (se resuelven solas).
+- **Ajedrez**: además de Dota 2, torneos de ajedrez uno contra uno con modalidad
+  (bala, blitz, rápidas, clásicas u otro ritmo). Si hay tablas, se desempata y el
+  organizador marca a quien pasa.
+- **Apuestas aparte**, en dos modalidades:
+  - **Parche 1 a 1** (por defecto): dos bandos; el evento solo puede empezar
+    (cerrar jugadas) o resolverse cuando lo apostado a cada bando es igual, así
+    quien gana cobra el doble. Mientras no esté parchada, cada uno puede retirar
+    su apuesta y quien la gestiona puede devolver lo que sobra del bando que puso
+    de más. En los torneos, la partida no puede empezar ni marcarse ganador sin
+    parchar sus apuestas. Hay «Empate o tablas: devolver a todos».
+  - **Pozo común**: varias opciones; quienes aciertan se reparten todo en
+    proporción a lo que pusieron.
+  Pueden ser libres (las resuelve quien las crea) o sobre una partida o el
+  campeón de un torneo (se resuelven solas).
 - **Billetera**: todo el dinero va en céntimos y cada cambio deja un movimiento.
   Historial con filtros (Yape, torneos, apuestas) y resumen de lo recargado,
   retirado, ganado en premios y el balance de las apuestas.
@@ -32,7 +44,8 @@ El primer usuario que se registra es admin. Para nombrar a otro:
 
 ## Recargas con Yape
 
-1. El usuario pulsa «Recargar» y entra en la **cola**. Solo una persona recarga a
+1. «Recargar» abre una pantalla de preparación (abrir Yape, tener el número y el
+   monto listos). Al pulsar **«Iniciar recarga»** entra en la **cola**. Solo una persona recarga a
    la vez: cuando le toca, tiene un **turno exclusivo de 1 minuto y medio** (más
    20 s de gracia para que la notificación llegue) y solo cuentan los Yapes que
    llegan durante su turno. No hace falta subir captura.

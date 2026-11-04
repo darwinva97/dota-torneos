@@ -8,7 +8,6 @@ import { movimientos, resumen } from "@/lib/billetera";
 import { soles } from "@/lib/dinero";
 import { Cargando, Dinero, Estado, Stat, Vacio } from "@/components/ui";
 import { ListaMovimientos } from "@/components/movimientos";
-import { accionAbrirRecarga } from "./acciones/billetera";
 
 export default function Inicio() {
   return (
@@ -41,11 +40,9 @@ async function Contenido() {
             <Dinero centimos={u.saldo} className="text-6xl sm:text-7xl" />
           </div>
           <div className="flex flex-wrap gap-3">
-            <form action={accionAbrirRecarga}>
-              <button className="boton">
-                <ArrowDownToLine className="size-5" aria-hidden /> Recargar
-              </button>
-            </form>
+            <Link href="/billetera/recargar" className="boton">
+              <ArrowDownToLine className="size-5" aria-hidden /> Recargar
+            </Link>
             <Link href="/billetera/retirar" className="boton-sobrio">
               <ArrowUpFromLine className="size-5" aria-hidden /> Retirar
             </Link>

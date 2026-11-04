@@ -58,15 +58,15 @@ async function Lista() {
                 </dd>
               </div>
               <div>
-                <dt className="text-niebla">Equipos</dt>
+                <dt className="text-niebla">{t.juego === "ajedrez" ? "Jugadores" : "Equipos"}</dt>
                 <dd className="cifra text-lg">
                   {t.equipos} de {t.max_equipos}
                 </dd>
               </div>
               <div>
-                <dt className="text-niebla">Formato</dt>
+                <dt className="text-niebla">{t.juego === "ajedrez" ? "Ajedrez" : "Dota 2"}</dt>
                 <dd className="cifra text-lg">
-                  {t.tam_equipo} contra {t.tam_equipo}
+                  {t.juego === "ajedrez" ? t.ritmo || "1 contra 1" : `${t.tam_equipo} contra ${t.tam_equipo}`}
                 </dd>
               </div>
             </dl>
