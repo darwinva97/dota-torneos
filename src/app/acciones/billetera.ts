@@ -187,3 +187,25 @@ export async function accionCambiarAdmin(_: Estado, fd: FormData): Promise<Estad
   refresh();
   return { ok: hacer ? "Ahora es admin." : "Ya no es admin." };
 }
+
+export async function accionAsignarPago(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  try {
+    R.asignarPago(num(fd, "pago_id"), num(fd, "usuario_id"), admin.usuario);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Yape asignado y acreditado." };
+}
+
+export async function accionDescartarPago(_: Estado, fd: FormData): Promise<Estado> {
+  await exigirAdmin();
+  try {
+    R.descartarPago(num(fd, "pago_id"));
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Yape descartado." };
+}

@@ -214,6 +214,8 @@ export function solicitudesPendientes() {
   return {
     retiros: n("SELECT COUNT(*) AS n FROM retiros WHERE estado = 'pendiente'"),
     recargas: n("SELECT COUNT(*) AS n FROM recargas WHERE estado = 'revision'"),
+    // Yapes de la última semana que no se pudieron asignar solos.
+    pagos: n(`SELECT COUNT(*) AS n FROM pagos_yape WHERE estado = 'libre' AND recibido > ${Date.now() - 7 * 86_400_000}`),
   };
 }
 

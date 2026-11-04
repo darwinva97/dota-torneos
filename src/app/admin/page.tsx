@@ -10,7 +10,7 @@ import {
   retirosPendientes,
   retirosResueltos,
 } from "@/lib/billetera";
-import { colaActual, recargasEnRevision, ultimosPagos } from "@/lib/yape/recargas";
+import { colaActual, recargasEnRevision, sugerenciaPara, ultimosPagos } from "@/lib/yape/recargas";
 import { soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
 import { Copiar } from "@/components/copiar";
@@ -19,7 +19,9 @@ import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/componen
 import { FilaDeuda } from "@/components/deudas";
 import {
   accionAprobarRecarga,
+  accionAsignarPago,
   accionCrearDeuda,
+  accionDescartarPago,
   accionPerdonarDeuda,
   accionPagarRetiro,
   accionRechazarRecarga,
@@ -256,7 +258,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
               </Link>
             ))}
           </nav>
-          {pestana === "yapes" && <YapesRecibidos />}
+          {pestana === "yapes" && <YapesRecibidos usuarios={usuarios} />}
           {pestana === "movimientos" && <MovimientosGlobales />}
           {pestana === "retiros" && <RetirosResueltos />}
           {pestana === "deudas" && <DeudasCerradas />}
@@ -305,36 +307,79 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
   );
 }
 
-function YapesRecibidos() {
+function YapesRecibidos({ usuarios }: { usuarios: { id: number; usuario: string; nombre_yape: string }[] }) {
   const pagos = ultimosPagos();
   if (pagos.length === 0) return <Vacio>El observador todavía no ha reportado ningún pago.</Vacio>;
   return (
     <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-white/[0.07] bg-losa/60">
-      {pagos.map((p) => (
-        <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium">
-              {p.nombre}
-              {p.fuente === "simulador" && <span className="text-sm text-niebla"> (simulado)</span>}
-            </span>
-            <span className="text-sm text-niebla">
-              {new Date(p.recibido).toLocaleString("es-PE", {
-                timeZone: "America/Lima",
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </span>
-          {p.usuario ? (
-            <Estado estado="acreditada" texto={`A ${p.usuario}`} />
-          ) : (
-            <Estado estado="pendiente" texto="Sin asignar" />
-          )}
-          <Dinero centimos={p.monto} moneda={false} className="w-24 text-right text-lg" />
-        </li>
-      ))}
+      {pagos.map((p) => {
+        const sugerido = p.estado === "libre" ? sugerenciaPara(p) : null;
+        return (
+          <li key={p.id} className="space-y-2 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">
+                  {p.nombre}
+                  {p.fuente === "simulador" && <span className="text-sm text-niebla"> (simulado)</span>}
+                </span>
+                <span className="text-sm text-niebla">
+                  {new Date(p.recibido).toLocaleString("es-PE", {
+                    timeZone: "America/Lima",
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+              </span>
+              {p.usuario ? (
+                <Estado estado="acreditada" texto={`A ${p.usuario}`} />
+              ) : p.estado === "descartado" ? (
+                <Estado estado="anulado" texto="Descartado" />
+              ) : (
+                <Estado estado="pendiente" texto="Sin asignar" />
+              )}
+              <Dinero centimos={p.monto} moneda={false} className="w-24 text-right text-lg" />
+            </div>
+            {p.estado === "libre" && (
+              <div className="flex flex-wrap items-end gap-2">
+                <Formulario
+                  accion={accionAsignarPago}
+                  className="flex flex-wrap items-end gap-2"
+                  confirmar={`¿Acreditar ${soles(p.monto)} de ${p.nombre}?`}
+                >
+                  <input type="hidden" name="pago_id" value={p.id} />
+                  <select
+                    name="usuario_id"
+                    required
+                    defaultValue={sugerido?.usuarioId ?? ""}
+                    aria-label="Asignar a"
+                    className="campo w-auto py-1.5 text-sm"
+                  >
+                    <option value="" disabled>
+                      Asignar a…
+                    </option>
+                    {usuarios.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.usuario} ({u.nombre_yape})
+                      </option>
+                    ))}
+                  </select>
+                  <Enviar className="py-1.5 text-sm">Asignar</Enviar>
+                </Formulario>
+                <Formulario accion={accionDescartarPago} confirmar="¿Descartar este Yape? No es de El Pozo.">
+                  <input type="hidden" name="pago_id" value={p.id} />
+                  <Enviar variante="boton-sobrio" className="py-1.5 text-sm">
+                    Descartar
+                  </Enviar>
+                </Formulario>
+                {sugerido && <span className="text-sm text-niebla">Sugerido porque {sugerido.porque}.</span>}
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

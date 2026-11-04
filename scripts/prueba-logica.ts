@@ -534,6 +534,31 @@ const pornombre = R.ingresarPago({ externoId: "nombre-ana", monto: 500, nombre: 
 assert.equal(pornombre.nuevo && pornombre.recargaId, null, "el monto siempre debe cuadrar, aunque el nombre sí");
 R.cancelarRecarga(rm2, qa);
 assert.throws(() => R.abrirRecarga(qa, 50), /al menos S\/ 1.00/);
+// Pago tardío: monto exacto en los 5 minutos tras vencer el turno → suyo.
+db().prepare("UPDATE recargas SET estado = 'cancelada' WHERE estado IN ('en_cola', 'escuchando')").run();
+avanzar(11 * 60_000);
+const rt = R.abrirRecarga(qc, 200);
+avanzar(R.TURNO_MS + 21_000);
+assert.equal(R.recarga(rt)!.estado, "vencida");
+avanzar(30_000);
+const tarde1 = R.ingresarPago({ externoId: "tardio-1", monto: 200, nombre: "Carla Men*", recibido: reloj, fuente: "test" });
+assert.equal(tarde1.nuevo && tarde1.recargaId, rt, "llegó 50 s tarde con el monto exacto: suyo");
+const rt2 = R.abrirRecarga(qc, 300);
+avanzar(60_000 + R.TURNO_MS + 21_000);
+assert.equal(R.recarga(rt2)!.estado, "vencida");
+avanzar(6 * 60_000);
+const tarde2 = R.ingresarPago({ externoId: "tardio-2", monto: 300, nombre: "Carla Men*", recibido: reloj, fuente: "test" });
+assert.equal(tarde2.nuevo && tarde2.recargaId, null, "pasados 5 minutos ya no");
+// Asignación manual del admin, sugerencia y descarte.
+const libre2 = R.ingresarPago({ externoId: "suelto", monto: 300, nombre: "Alguien", recibido: reloj, fuente: "test" });
+const pSuelto = db().prepare("SELECT * FROM pagos_yape WHERE id = ?").get(tarde2.nuevo ? tarde2.pagoId : 0) as R.PagoYape;
+assert.equal(R.sugerenciaPara(pSuelto)?.usuarioId, qc, "sugiere a quien declaró ese monto");
+const sc2 = saldo(qc);
+R.asignarPago(pSuelto.id, qc, "jefe");
+assert.equal(saldo(qc) - sc2, 300);
+assert.throws(() => R.asignarPago(pSuelto.id, qc, "jefe"), /ya está asignado/);
+R.descartarPago(libre2.nuevo ? libre2.pagoId : 0);
+assert.throws(() => R.descartarPago(libre2.nuevo ? libre2.pagoId : 0), /ya está asignado o descartado/);
 R.fijarRelojParaPruebas(() => Date.now());
 
 // Saldo insuficiente.

@@ -14,7 +14,7 @@ async function datosNav() {
   const u = await usuarioActual();
   if (!u?.es_admin) return { admin: null };
   const p = solicitudesPendientes();
-  return { admin: p.retiros + p.recargas };
+  return { admin: p.retiros + p.recargas + p.pagos };
 }
 
 async function NavConDatos({ variante }: { variante: "lateral" | "inferior" }) {
@@ -91,7 +91,7 @@ async function CuentaConDatos() {
     );
   }
   const pendientes = u.es_admin ? solicitudesPendientes() : null;
-  const totalPendientes = pendientes ? pendientes.retiros + pendientes.recargas : 0;
+  const totalPendientes = pendientes ? pendientes.retiros + pendientes.recargas + pendientes.pagos : 0;
   return (
     <div className="flex items-center gap-2 sm:gap-3">
       {/* Saldo + recarga rápida, como el contador de oro de la tienda. */}

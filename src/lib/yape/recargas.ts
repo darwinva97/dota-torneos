@@ -26,6 +26,10 @@ export const TURNO_MS = 30 * 1000;
 // Un Yape hecho en el último segundo tarda unos segundos en notificarse y en
 // pasar por yapi; el turno sigue reservado durante esta gracia tras el plazo.
 const GRACIA_MS = 20 * 1000;
+// Pago tardío: un Yape por el monto exacto que alguien declaró, que llega en
+// estos minutos después de vencérsele el turno, es suyo si nadie con turno lo
+// reclama. Cubre a quien yapea justo al final y la demora de la notificación.
+const TARDIO_MS = 5 * 60 * 1000;
 export const PENALIZACION_MS = 60 * 1000;
 const MEMORIA_FALLOS_MS = 10 * 60 * 1000;
 // Quien cierra la pantalla mientras espera en la cola pierde el sitio.
@@ -379,10 +383,69 @@ function intentarEmparejar(pago: PagoYape): number | null {
        WHERE r.estado = 'escuchando' AND r.inicio <= ? AND r.expira + ? >= ?`,
     )
     .all(pago.recibido, GRACIA_MS, pago.recibido) as (Recarga & { nombre_yape: string })[];
-  const elegida = elegirCandidata(candidatas, pago);
+  const elegida = elegirCandidata(candidatas, pago) ?? tardia(pago);
   if (!elegida) return null;
   acreditar(elegida.id, pago.id);
   return elegida.id;
+}
+
+// Turnos vencidos hace poco, sin pago y con el mismo monto declarado. Si hay
+// más de uno, no se adivina: lo asigna el admin.
+function tardia(pago: PagoYape) {
+  const vencidas = db()
+    .prepare(
+      `SELECT r.*, u.nombre_yape FROM recargas r JOIN usuarios u ON u.id = r.usuario_id
+       WHERE r.estado = 'vencida' AND r.pago_id IS NULL AND r.monto_esperado = ?
+         AND r.inicio <= ? AND r.expira + ? >= ?`,
+    )
+    .all(pago.monto, pago.recibido, GRACIA_MS + TARDIO_MS, pago.recibido) as (Recarga & { nombre_yape: string })[];
+  return elegirCandidata(vencidas, pago);
+}
+
+// --- Asignación manual (admin) ---
+
+// Acredita un Yape sin dueño a un usuario: queda como una recarga más en su
+// historial, ligada a ese pago.
+export function asignarPago(pagoId: number, usuarioId: number, admin: string) {
+  transaccion(() => {
+    const p = db().prepare("SELECT * FROM pagos_yape WHERE id = ?").get(pagoId) as PagoYape | undefined;
+    exigir(p && p.estado === "libre", "Ese Yape ya está asignado o descartado.");
+    exigir(db().prepare("SELECT 1 FROM usuarios WHERE id = ?").get(usuarioId), "Elige a quién asignarlo.");
+    const r = db()
+      .prepare(
+        `INSERT INTO recargas (usuario_id, estado, inicio, expira, monto_esperado, nota)
+         VALUES (?, 'revision', ?, ?, ?, ?)`,
+      )
+      .run(usuarioId, p.recibido, p.recibido, p.monto, `Asignado a mano por ${admin}`);
+    acreditar(Number(r.lastInsertRowid), pagoId);
+  });
+}
+
+// Un Yape que no tiene que ver con El Pozo (por ejemplo, un pago personal).
+export function descartarPago(pagoId: number) {
+  const r = db().prepare("UPDATE pagos_yape SET estado = 'descartado' WHERE id = ? AND estado = 'libre'").run(pagoId);
+  exigir(r.changes === 1, "Ese Yape ya está asignado o descartado.");
+}
+
+// A quién es más probable que pertenezca un Yape sin dueño: quien declaró ese
+// monto en un turno cercano, o si no, quien tiene el nombre más parecido.
+export function sugerenciaPara(pago: PagoYape) {
+  const cercana = db()
+    .prepare(
+      `SELECT usuario_id FROM recargas WHERE monto_esperado = ? AND inicio > 0
+       AND inicio <= ? AND expira + ? >= ? ORDER BY inicio DESC LIMIT 1`,
+    )
+    .get(pago.monto, pago.recibido, 60 * 60 * 1000, pago.recibido) as { usuario_id: number } | undefined;
+  if (cercana) return { usuarioId: cercana.usuario_id, porque: "declaró ese monto en una recarga de esa hora" };
+  const usuarios = db().prepare("SELECT id, nombre_yape FROM usuarios").all() as { id: number; nombre_yape: string }[];
+  const mejor = usuarios
+    .map((u) => ({ u, ...puntuarNombre(u.nombre_yape, pago.nombre) }))
+    .filter((x) => x.enteras > 0)
+    .sort((a, b) => b.puntos - a.puntos);
+  if (mejor.length && (mejor.length === 1 || mejor[0].puntos > mejor[1].puntos)) {
+    return { usuarioId: mejor[0].u.id, porque: "su nombre en Yape se parece" };
+  }
+  return null;
 }
 
 // El monto siempre tiene que cuadrar: solo es suyo un Yape por el monto exacto
