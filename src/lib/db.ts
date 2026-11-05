@@ -249,6 +249,10 @@ function migrar(db: Database.Database) {
   const columnasPartidas = (db.prepare("PRAGMA table_info(partidas)").all() as { name: string }[]).map((c) => c.name);
   if (!columnasPartidas.includes("llave")) {
     db.pragma("foreign_keys = OFF");
+    // Sin legacy_alter_table, SQLite reescribe las claves foráneas de las demás
+    // tablas (mercados.partida_id) para que apunten a «partidas_vieja», y al
+    // borrarla quedan colgando. Ver repararReferenciasRotas.
+    db.pragma("legacy_alter_table = ON");
     db.transaction(() => {
       db.exec("ALTER TABLE partidas RENAME TO partidas_vieja");
       db.exec(ESQUEMA);
@@ -256,14 +260,47 @@ function migrar(db: Database.Database) {
                SELECT id, torneo_id, 'U', ronda, pos, equipo_a, equipo_b, ganador, estado FROM partidas_vieja`);
       db.exec("DROP TABLE partidas_vieja");
     })();
+    db.pragma("legacy_alter_table = OFF");
     db.pragma("foreign_keys = ON");
   }
+  repararReferenciasRotas(db);
   for (const [tabla, columna, definicion] of COLUMNAS_NUEVAS) {
     const existe = (db.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).some(
       (c) => c.name === columna,
     );
     if (!existe) db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${definicion}`);
   }
+}
+
+// Bases migradas antes del arreglo: mercados.partida_id quedó apuntando a
+// «partidas_vieja», que ya no existe, y cualquier INSERT en mercados fallaba con
+// «no such table: main.partidas_vieja». Se reconstruye la tabla con la
+// referencia correcta (receta de SQLite para cambiar un esquema), conservando
+// los datos.
+function repararReferenciasRotas(db: Database.Database) {
+  const rotas = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE '%partidas_vieja%'")
+    .all() as { name: string; sql: string }[];
+  if (!rotas.length) return;
+  db.pragma("foreign_keys = OFF");
+  db.pragma("legacy_alter_table = ON");
+  db.transaction(() => {
+    for (const { name, sql } of rotas) {
+      const temporal = `${name}__reparada`;
+      const nuevo = sql
+        .replace(/"?partidas_vieja"?/g, "partidas")
+        .replace(new RegExp(`^CREATE TABLE\\s+"?${name}"?`), `CREATE TABLE ${temporal}`);
+      db.exec(nuevo);
+      db.exec(`INSERT INTO ${temporal} SELECT * FROM ${name}`);
+      db.exec(`DROP TABLE ${name}`);
+      db.exec(`ALTER TABLE ${temporal} RENAME TO ${name}`);
+    }
+    const fallos = db.prepare("PRAGMA foreign_key_check").all();
+    if (fallos.length) throw new Error(`Claves foráneas rotas tras reparar: ${JSON.stringify(fallos)}`);
+  })();
+  db.pragma("legacy_alter_table = OFF");
+  db.pragma("foreign_keys = ON");
+  console.log(`[db] reparadas las referencias a partidas_vieja en: ${rotas.map((r) => r.name).join(", ")}`);
 }
 
 // En desarrollo los módulos se recargan; guardamos la conexión en globalThis
