@@ -6,6 +6,8 @@ import { accionCrearTorneo } from "../../acciones/torneos";
 import { CamposInscripcion } from "./inscripcion";
 import { CamposPremio } from "./premio";
 import { CamposJuego } from "./juego";
+import { CamposAcumulado } from "./acumulado";
+import { saldoAcumulado } from "@/lib/acumulado";
 import { usuarioActual } from "@/lib/sesion";
 
 async function lichessConectado() {
@@ -23,6 +25,7 @@ export default function NuevoTorneo() {
 }
 
 async function Contenido() {
+  const esAdmin = !!(await usuarioActual())?.es_admin;
   return (
     <div className="max-w-xl">
       <h1 className="mb-2 text-5xl">Crear torneo</h1>
@@ -37,6 +40,7 @@ async function Contenido() {
         <CamposJuego lichessConectado={await lichessConectado()} />
         <CamposInscripcion />
         <CamposPremio />
+        {esAdmin && <CamposAcumulado saldo={saldoAcumulado()} />}
         <fieldset>
           <legend className="etiqueta">Reparto del pozo</legend>
           <div className="grid gap-3 sm:grid-cols-2">

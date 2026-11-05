@@ -1,4 +1,5 @@
 import "server-only";
+import { moverAcumulado, saldoAcumulado } from "./acumulado";
 import crypto from "node:crypto";
 import { db, transaccion } from "./db";
 import { exigir } from "./errores";
@@ -55,11 +56,13 @@ export type Torneo = {
   campeon_id: number | null;
   /** Lo que el organizador puso de su saldo como premio base. */
   premio_base: number;
+  /** Lo que puso el admin del pozo acumulado de la página. */
+  pozo_pagina: number;
   /** 1: lo recaudado se suma al premio. 0: premio fijo y lo recaudado va al organizador. */
   suma_recaudado: number;
   /** Entradas más las garantías que ya pasaron al pozo. */
   recaudado: number;
-  /** Lo que se reparte al final: base + (recaudado si se suma). */
+  /** Lo que se reparte al final: base + pozo de la página + (recaudado si se suma). */
   pozo: number;
   /** Garantías cobradas que todavía no se liquidan (antes del sorteo). */
   garantias_pendientes: number;
@@ -105,7 +108,7 @@ export type Partida = {
 const SELECT_TORNEO = `
   SELECT t.*, u.usuario AS organizador,
     COALESCE((SELECT SUM(aporte + garantia_pozo) FROM integrantes i WHERE i.torneo_id = t.id), 0) AS recaudado,
-    t.premio_base + CASE WHEN t.suma_recaudado
+    t.premio_base + t.pozo_pagina + CASE WHEN t.suma_recaudado
       THEN COALESCE((SELECT SUM(aporte + garantia_pozo) FROM integrantes i WHERE i.torneo_id = t.id), 0) ELSE 0 END
       AS pozo,
     CASE WHEN t.estado = 'inscripciones'
@@ -175,6 +178,9 @@ export function crearTorneo(d: {
   fecha: string;
   premioBase: number | null;
   sumaRecaudado: boolean;
+  /** % del pozo acumulado de la página que va al premio (solo el admin). */
+  acumuladoPct?: number;
+  esAdmin?: boolean;
   juego?: Juego;
   ritmo?: string;
   formato?: Formato;
@@ -211,9 +217,14 @@ export function crearTorneo(d: {
   exigir(juego !== "ajedrez" || ritmo.length >= 3, "Elige la modalidad de ajedrez o escribe el ritmo, por ejemplo 3+2.");
   exigir(d.nombre.trim().length >= 3, "Ponle un nombre al torneo.");
   exigir(d.premioBase !== null && d.premioBase >= 0, "Escribe el premio base en soles, o 0 si no pones nada.");
+  const acumuladoPct = d.acumuladoPct ?? 0;
+  exigir(Number.isInteger(acumuladoPct) && acumuladoPct >= 0 && acumuladoPct <= 100, "Elige qué parte del pozo acumulado va al premio.");
+  exigir(acumuladoPct === 0 || d.esAdmin, "Solo el admin puede poner el pozo acumulado de la página en un torneo.");
+  const deAcumulado = Math.floor((saldoAcumulado() * acumuladoPct) / 100);
+  exigir(acumuladoPct === 0 || deAcumulado > 0, "El pozo acumulado está vacío: todavía no hay nada que poner.");
   exigir(
-    d.sumaRecaudado || d.premioBase > 0,
-    "Con premio fijo hace falta un premio base: si no, no habría nada que ganar.",
+    d.sumaRecaudado || d.premioBase > 0 || deAcumulado > 0,
+    "Con premio fijo hace falta un premio base o parte del pozo acumulado: si no, no habría nada que ganar.",
   );
   exigir(d.entrada !== null && d.entrada >= 0, "Escribe cuánto pone cada jugador al pozo (puede ser 0).");
   exigir(d.garantia !== null && d.garantia >= 0, "Escribe la garantía en soles, o 0 si no hay garantía.");
@@ -254,7 +265,14 @@ export function crearTorneo(d: {
       exigirSinDeudas(d.organizadorId);
       mover(d.organizadorId, -d.premioBase!, "premio_base", `Premio base de ${d.nombre.trim()}`);
     }
-    return Number(r.lastInsertRowid);
+    const id = Number(r.lastInsertRowid);
+    // La parte del pozo acumulado se aparta ya, para que nadie más la use. Lo
+    // que no se pone queda para el siguiente torneo.
+    if (deAcumulado > 0) {
+      moverAcumulado(-deAcumulado, `Premio del torneo ${d.nombre.trim()} (${acumuladoPct} % del pozo)`, { torneoId: id });
+      db().prepare("UPDATE torneos SET pozo_pagina = ? WHERE id = ?").run(deAcumulado, id);
+    }
+    return id;
   });
 }
 
@@ -270,6 +288,22 @@ export function aumentarPremio(torneoId: number, usuarioId: number, monto: numbe
     exigirSinDeudas(usuarioId);
     mover(usuarioId, -monto, "premio_base", `Aumentaste el premio de ${t.nombre}`);
     db().prepare("UPDATE torneos SET premio_base = premio_base + ? WHERE id = ?").run(monto, torneoId);
+  });
+}
+
+// El admin suma al premio otra parte del pozo acumulado (por ejemplo, lo que
+// creció con las apuestas del propio torneo).
+export function sumarAcumulado(torneoId: number, pct: number, esAdmin: boolean) {
+  exigir(esAdmin, "Solo el admin puede usar el pozo acumulado de la página.");
+  exigir(Number.isInteger(pct) && pct > 0 && pct <= 100, "Elige qué parte del pozo acumulado sumas.");
+  transaccion(() => {
+    const t = torneo(torneoId);
+    exigir(t, "Ese torneo no existe.");
+    exigir(t.estado === "inscripciones" || t.estado === "en_curso", "Este torneo ya terminó.");
+    const monto = Math.floor((saldoAcumulado() * pct) / 100);
+    exigir(monto > 0, "El pozo acumulado está vacío.");
+    moverAcumulado(-monto, `Premio del torneo ${t.nombre} (${pct} % del pozo)`, { torneoId });
+    db().prepare("UPDATE torneos SET pozo_pagina = pozo_pagina + ? WHERE id = ?").run(monto, torneoId);
   });
 }
 
@@ -707,6 +741,7 @@ export function cancelarTorneo(torneoId: number, usuarioId: number, esAdmin: boo
     if (t.premio_base > 0) {
       mover(t.organizador_id, t.premio_base, "premio_base_devuelto", `Torneo cancelado: ${t.nombre}`);
     }
+    if (t.pozo_pagina > 0) moverAcumulado(t.pozo_pagina, `Vuelve del torneo cancelado ${t.nombre}`, { torneoId });
     db().prepare("UPDATE torneos SET estado = 'cancelado' WHERE id = ?").run(torneoId);
   });
 }

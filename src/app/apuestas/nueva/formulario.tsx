@@ -3,14 +3,21 @@
 import { useState } from "react";
 import { Formulario, Enviar } from "@/components/formulario";
 import { accionCrearApuesta } from "../../acciones/apuestas";
+import { cobroParche } from "@/lib/dinero";
 
-export function NuevaApuesta() {
+export function NuevaApuesta({ pagoPct }: { pagoPct: number }) {
   const [opciones, setOpciones] = useState(["Sí", "No"]);
   const [modalidad, setModalidad] = useState<"parche" | "pozo">("parche");
   // El parche es siempre de dos bandos.
   const visibles = modalidad === "parche" ? opciones.slice(0, 2) : opciones;
   return (
     <Formulario accion={accionCrearApuesta} className="space-y-5">
+      {pagoPct < 100 && (
+        <p className="rounded-md bg-hondo px-3 py-2 text-sm text-niebla">
+          Quienes ganen se reparten el {pagoPct} % de lo apostado; el {100 - pagoPct} % va al pozo acumulado de la página.
+          Si se anula o nadie acierta, se devuelve todo.
+        </p>
+      )}
       <fieldset>
         <legend className="etiqueta">Modalidad</legend>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -26,7 +33,7 @@ export function NuevaApuesta() {
             <span>
               <span className="block font-medium">Parche 1 a 1</span>
               <span className="text-sm text-niebla">
-                Dos bandos. Solo empieza cuando lo apostado a cada uno es igual; quien gana cobra el doble.
+                Dos bandos. Solo empieza cuando lo apostado a cada uno es igual; quien gana cobra {cobroParche(pagoPct)} lo que puso.
               </span>
             </span>
           </label>

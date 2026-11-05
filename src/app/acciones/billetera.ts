@@ -16,6 +16,7 @@ import {
   resolverRetiro,
 } from "@/lib/billetera";
 import * as R from "@/lib/yape/recargas";
+import { fijarPagoApuestas } from "@/lib/acumulado";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
 
@@ -208,4 +209,8 @@ export async function accionDescartarPago(_: Estado, fd: FormData): Promise<Esta
   }
   refresh();
   return { ok: "Yape descartado." };
+}
+
+export async function accionPagoApuestas(_: Estado, fd: FormData): Promise<Estado> {
+  return comoAdmin(() => fijarPagoApuestas(Number(fd.get("pago_pct"))), "Guardado. Vale para las apuestas que se creen desde ahora.");
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OPCIONES_PAGO, resumenAcumulado } from "@/lib/acumulado";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ArrowUpFromLine, Inbox, ScanSearch, Users } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   accionAsignarPago,
   accionCrearDeuda,
   accionDescartarPago,
+  accionPagoApuestas,
   accionPerdonarDeuda,
   accionPagarRetiro,
   accionRechazarRecarga,
@@ -59,6 +61,7 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
   const revision = recargasEnRevision();
   const usuarios = resumenUsuarios();
   const enCirculacion = usuarios.reduce((s, u) => s + u.saldo, 0);
+  const acumulado = resumenAcumulado();
   const porPagar = retiros.reduce((s, r) => s + r.monto, 0);
   const simulador = process.env.YAPE_SIMULADOR === "1";
   const deudas = listarDeudas("pendiente");
@@ -79,7 +82,8 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
         <Stat etiqueta="Jugadores">{usuarios.length}</Stat>
       </section>
       <p className="-mt-8 text-sm text-niebla">
-        El Yape del pozo debería tener al menos {soles(enCirculacion + porPagar)}: el saldo de todos más los retiros que
+        El Yape del pozo debería tener al menos {soles(enCirculacion + porPagar + acumulado.saldo)}: el saldo de todos, el
+        pozo acumulado ({soles(acumulado.saldo)}) más los retiros que
         aún no pagas.
       </p>
 
@@ -176,6 +180,33 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
             ))}
           </div>
         )}
+      </section>
+
+      <section className="panel grid gap-6 p-5 md:grid-cols-[1fr_auto]">
+        <div>
+          <h2 className="text-3xl">Comisión de las apuestas</h2>
+          <p className="mt-1 max-w-[60ch] text-niebla">
+            Cuánto de lo apostado se reparten los ganadores. El resto va al{" "}
+            <Link href="/pozo" className="underline underline-offset-2 hover:text-pergamino">
+              pozo acumulado
+            </Link>{" "}
+            ({soles(acumulado.saldo)} ahora), que pones como premio al crear un torneo. Cada apuesta se queda con el
+            porcentaje que había al crearla.
+          </p>
+        </div>
+        <Formulario accion={accionPagoApuestas} className="flex items-end gap-3">
+          <label>
+            <span className="etiqueta">Los ganadores cobran</span>
+            <select name="pago_pct" defaultValue={acumulado.pagoApuestas} className="campo w-auto">
+              {OPCIONES_PAGO.map((p) => (
+                <option key={p} value={p}>
+                  {p === 100 ? "100 % (sin comisión)" : `${p} % (${100 - p} % al pozo)`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Enviar>Guardar</Enviar>
+        </Formulario>
       </section>
 
       <section>

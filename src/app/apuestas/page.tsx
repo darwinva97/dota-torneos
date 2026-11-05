@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PozoAcumulado } from "@/components/acumulado";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
@@ -21,9 +22,13 @@ export default function Apuestas() {
         Apuestas
       </Titulo>
       <p className="-mt-3 mb-8 max-w-[64ch] text-niebla">
-        Aparte de la entrada a los torneos. Cada apuesta es un pozo: quienes aciertan se reparten todo lo apostado en
-        proporción a lo que pusieron. Si nadie acierta, se devuelve a todos.
+        Aparte de la entrada a los torneos. Cada apuesta es un pozo: quienes aciertan se reparten lo apostado en
+        proporción a lo que pusieron; si hay comisión, esa parte va al pozo acumulado de la página. Si nadie acierta,
+        se devuelve todo a todos.
       </p>
+      <div className="mb-10">
+        <PozoAcumulado />
+      </div>
       <Suspense fallback={<Cargando />}>
         <Listas />
       </Suspense>

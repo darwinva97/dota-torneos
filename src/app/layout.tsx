@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Barlow, Chakra_Petch } from "next/font/google";
 import { Cuenta, DegradadosSvg, Logo, Navegacion } from "@/components/marco";
 import { AvisoDeuda } from "@/components/deudas";
+import { PozoAcumulado } from "@/components/acumulado";
 import "./globals.css";
 
 const barlow = Barlow({ variable: "--font-barlow", subsets: ["latin"], weight: ["400", "500", "600"] });
@@ -27,7 +28,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <nav aria-label="Principal">
             <Navegacion variante="lateral" />
           </nav>
-          <p className="mt-auto px-3 text-xs text-niebla/70">Dota 2 y ajedrez entre amigos. Juega con lo que puedas perder.</p>
+          <div className="mt-auto">
+            <PozoAcumulado variante="lateral" />
+          </div>
+          <p className="px-3 text-xs text-niebla/70">Dota 2 y ajedrez entre amigos. Juega con lo que puedas perder.</p>
         </aside>
 
         <div className="flex min-h-dvh min-w-0 flex-col">

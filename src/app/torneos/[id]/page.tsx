@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { saldoAcumulado } from "@/lib/acumulado";
 import { Suspense } from "react";
 import { exigirUsuario, type Usuario } from "@/lib/sesion";
 import {
@@ -22,6 +23,7 @@ import { Cargando, Dinero, Estado, Vacio } from "@/components/ui";
 import {
   accionApostarEnTorneo,
   accionAumentarPremio,
+  accionSumarAcumulado,
   accionAsistencia,
   accionCancelarTorneo,
   accionCrearEquipo,
@@ -72,6 +74,9 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
         <div className="text-right">
           <div className="text-niebla">{t.suma_recaudado ? "Premio" : "Premio fijo"}</div>
           <Dinero centimos={t.pozo} className="text-6xl sm:text-7xl" />
+          {t.pozo_pagina > 0 && (
+            <p className="mt-1 max-w-[28ch] text-sm text-oro">Incluye {soles(t.pozo_pagina)} del pozo acumulado de la página</p>
+          )}
           {(t.premio_base > 0 || !t.suma_recaudado) && (
             <p className="mt-1 max-w-[28ch] text-sm text-niebla">
               {t.suma_recaudado
@@ -171,6 +176,21 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
                 </span>
               </label>
               <Enviar variante="boton-sobrio">Agregar de mi saldo</Enviar>
+            </Formulario>
+          )}
+          {!!u.es_admin && saldoAcumulado() > 0 && (
+            <Formulario accion={accionSumarAcumulado} className="flex flex-wrap items-end gap-3">
+              <input type="hidden" name="torneo_id" value={t.id} />
+              <label>
+                <span className="etiqueta">Sumar del pozo acumulado ({soles(saldoAcumulado())})</span>
+                <select name="pct" defaultValue="100" className="campo w-auto">
+                  <option value="25">25 %</option>
+                  <option value="50">50 %</option>
+                  <option value="75">75 %</option>
+                  <option value="100">Todo</option>
+                </select>
+              </label>
+              <Enviar variante="boton-sobrio">Sumar al premio</Enviar>
             </Formulario>
           )}
           <Formulario

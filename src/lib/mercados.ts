@@ -3,6 +3,7 @@ import { db, transaccion } from "./db";
 import { ErrorUsuario, exigir } from "./errores";
 import { soles } from "./dinero";
 import { exigirSinDeudas, mover } from "./billetera";
+import { moverAcumulado, pagoApuestas } from "./acumulado";
 
 // Apuestas aparte de la inscripción. Dos modalidades:
 //
@@ -14,7 +15,10 @@ import { exigirSinDeudas, mover } from "./billetera";
 //  - «pozo»: varias opciones; todo va a un pozo común y quienes aciertan se lo
 //    reparten en proporción a lo que pusieron.
 //
-// En ambas no hay casa: no se queda nada.
+// Comisión: al crear la apuesta se fija `pago_pct`, el porcentaje de lo apostado
+// que se reparten los ganadores (lo configura el admin; 100 = todo). El resto
+// va al pozo acumulado de la página. Si la apuesta se anula, se empata o nadie
+// acierta, se devuelve todo y no hay comisión.
 
 export type EstadoMercado = "abierto" | "cerrado" | "resuelto" | "anulado";
 export type Modalidad = "parche" | "pozo";
@@ -30,6 +34,10 @@ export type Mercado = {
   torneo_id: number | null;
   partida_id: number | null;
   modalidad: Modalidad;
+  /** % de lo apostado que cobran los ganadores; el resto va al pozo acumulado. */
+  pago_pct: number;
+  /** Lo que pasó al pozo acumulado al resolverse. */
+  comision: number;
   creado: string;
   pozo: number;
   apostadores: number;
@@ -75,9 +83,10 @@ export function crearMercado(d: {
   return transaccion(() => {
     const r = db()
       .prepare(
-        "INSERT INTO mercados (creador_id, titulo, descripcion, torneo_id, partida_id, modalidad) VALUES (?, ?, ?, ?, ?, ?)",
+        `INSERT INTO mercados (creador_id, titulo, descripcion, torneo_id, partida_id, modalidad, pago_pct)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(d.creadorId, titulo, d.descripcion?.trim() ?? "", d.torneoId ?? null, d.partidaId ?? null, modalidad);
+      .run(d.creadorId, titulo, d.descripcion?.trim() ?? "", d.torneoId ?? null, d.partidaId ?? null, modalidad, pagoApuestas());
     const id = Number(r.lastInsertRowid);
     const ins = db().prepare("INSERT INTO opciones (mercado_id, etiqueta, equipo_id) VALUES (?, ?, ?)");
     for (const o of opciones) ins.run(id, o.etiqueta.trim(), o.equipoId ?? null);
@@ -268,7 +277,8 @@ export function anularMercado(mercadoId: number, motivo = "Apuesta anulada") {
   });
 }
 
-// Reparto parimutuel. Si nadie acertó, se devuelve todo a todos.
+// Reparto parimutuel de lo repartible (pago_pct del total). Si nadie acertó, se
+// devuelve todo a todos.
 export function resolverMercado(mercadoId: number, opcionId: number) {
   transaccion(() => {
     const m = mercado(mercadoId);
@@ -288,10 +298,12 @@ export function resolverMercado(mercadoId: number, opcionId: number) {
     exigirParchada(mercadoId);
 
     const pozo = jugadas.reduce((s, j) => s + j.monto, 0);
+    const repartible = Math.floor((pozo * m.pago_pct) / 100);
+    const comision = pozo - repartible;
     const acertado = ganadoras.reduce((s, j) => s + j.monto, 0);
-    const pagos = ganadoras.map((j) => Math.floor((j.monto * pozo) / acertado));
+    const pagos = ganadoras.map((j) => Math.floor((j.monto * repartible) / acertado));
     // Los céntimos que sobran del redondeo van a las jugadas más grandes.
-    let resto = pozo - pagos.reduce((s, p) => s + p, 0);
+    let resto = repartible - pagos.reduce((s, p) => s + p, 0);
     const orden = ganadoras.map((_, i) => i).sort((a, b) => ganadoras[b].monto - ganadoras[a].monto);
     for (let k = 0; resto > 0; k = (k + 1) % orden.length, resto--) pagos[orden[k]]++;
 
@@ -301,11 +313,12 @@ export function resolverMercado(mercadoId: number, opcionId: number) {
       marcar.run(pagos[i], j.id);
       mover(j.usuario_id, pagos[i], "apuesta_ganada", `Ganaste: ${m.titulo} (${opcion.etiqueta})`);
     });
+    moverAcumulado(comision, `Comisión de la apuesta «${m.titulo}»`, { mercadoId });
     db()
       .prepare(
-        "UPDATE mercados SET estado = 'resuelto', opcion_ganadora = ?, resuelto = datetime('now') WHERE id = ?",
+        "UPDATE mercados SET estado = 'resuelto', opcion_ganadora = ?, comision = ?, resuelto = datetime('now') WHERE id = ?",
       )
-      .run(opcionId, mercadoId);
+      .run(opcionId, comision, mercadoId);
   });
 }
 

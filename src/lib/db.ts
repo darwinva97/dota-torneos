@@ -173,6 +173,25 @@ CREATE TABLE IF NOT EXISTS deudas (
   resuelto TEXT
 );
 
+-- Ajustes de la página que cambia el admin (clave → valor).
+CREATE TABLE IF NOT EXISTS config (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
+);
+
+-- Pozo acumulado de la página: le entra la parte de las apuestas que no se
+-- reparte a los ganadores y le sale lo que se pone en el premio de un torneo.
+-- monto con signo; el saldo es la suma.
+CREATE TABLE IF NOT EXISTS acumulado (
+  id INTEGER PRIMARY KEY,
+  monto INTEGER NOT NULL,
+  motivo TEXT NOT NULL,
+  mercado_id INTEGER REFERENCES mercados(id),
+  torneo_id INTEGER REFERENCES torneos(id),
+  saldo_despues INTEGER NOT NULL CHECK (saldo_despues >= 0),
+  creado TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS retiros (
   id INTEGER PRIMARY KEY,
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
@@ -241,6 +260,12 @@ const COLUMNAS_NUEVAS: [tabla: string, columna: string, definicion: string][] = 
   ["usuarios", "lichess_usuario", "TEXT NOT NULL DEFAULT ''"],
   ["usuarios", "lichess_token", "TEXT NOT NULL DEFAULT ''"],
   ["integrantes", "lichess_inscrito", "INTEGER NOT NULL DEFAULT 0"],
+  // Porcentaje de lo apostado que se reparte a los ganadores (100 = todo). Se
+  // fija al crear la apuesta; el resto, la comisión, va al pozo acumulado.
+  ["mercados", "pago_pct", "INTEGER NOT NULL DEFAULT 100"],
+  ["mercados", "comision", "INTEGER NOT NULL DEFAULT 0"],
+  // Parte del premio del torneo que salió del pozo acumulado de la página.
+  ["torneos", "pozo_pagina", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function migrar(db: Database.Database) {

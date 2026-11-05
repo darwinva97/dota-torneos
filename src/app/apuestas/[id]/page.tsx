@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
 import { estadoParche, jugadasDe, mercado, mensajeSinParche, opcionesDe } from "@/lib/mercados";
 import { torneo } from "@/lib/torneos";
-import { soles } from "@/lib/dinero";
+import { cobroParche, soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
 import { Cargando, Dinero, Estado } from "@/components/ui";
 import {
@@ -63,12 +63,12 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
           {m.descripcion && <p className="mt-3 max-w-[64ch] whitespace-pre-line">{m.descripcion}</p>}
         </header>
 
-        {parche && viva && <PanelParche p={parche} puedeIgualar={puedeIgualar} mercadoId={m.id} />}
+        {parche && viva && <PanelParche p={parche} puedeIgualar={puedeIgualar} mercadoId={m.id} pagoPct={m.pago_pct} />}
 
         <section aria-label="Opciones" className="space-y-3">
           {opciones.map((o) => {
             const parte = m.pozo > 0 ? o.total / m.pozo : 0;
-            const cuota = o.total > 0 ? m.pozo / o.total : null;
+            const cuota = o.total > 0 ? (m.pozo * m.pago_pct) / 100 / o.total : null;
             const gano = m.opcion_ganadora === o.id && m.estado === "resuelto";
             return (
               <div
@@ -94,7 +94,7 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                 {m.estado === "abierto" && (
                   <p className="relative mt-1 text-sm text-niebla">
                     {parche
-                      ? "Si gana este bando, cada uno cobra el doble de lo que puso."
+                      ? `Si gana este bando, cada uno cobra ${cobroParche(m.pago_pct)} lo que puso.`
                       : cuota
                         ? `Si gana, cada sol apostado aquí cobra ${soles(Math.floor(cuota * 100))} con el pozo actual.`
                         : "Nadie ha apostado por esta todavía."}
@@ -106,6 +106,17 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
           <p className="flex items-baseline justify-end gap-3 text-niebla">
             Pozo total <Dinero centimos={m.pozo} className="text-4xl" />
           </p>
+          {m.pago_pct < 100 && (
+            <p className="text-right text-sm text-niebla">
+              {m.estado === "resuelto"
+                ? `Los ganadores cobraron el ${m.pago_pct} %; ${soles(m.comision)} fueron al `
+                : `Los ganadores se reparten el ${m.pago_pct} %; el ${100 - m.pago_pct} % va al `}
+              <Link href="/pozo" className="underline underline-offset-2 hover:text-pergamino">
+                pozo acumulado
+              </Link>
+              . Si se anula o nadie acierta, se devuelve todo.
+            </p>
+          )}
         </section>
 
         <section>
@@ -267,10 +278,12 @@ function PanelParche({
   p,
   puedeIgualar,
   mercadoId,
+  pagoPct,
 }: {
   p: NonNullable<ReturnType<typeof estadoParche>>;
   puedeIgualar: boolean;
   mercadoId: number;
+  pagoPct: number;
 }) {
   const total = p.a.total + p.b.total;
   const parteA = total ? (p.a.total / total) * 100 : 50;
@@ -303,7 +316,7 @@ function PanelParche({
       </div>
       <p className="text-sm text-niebla">
         {p.parchada
-          ? "Los dos bandos pusieron lo mismo. Quien gane cobra el doble de lo que apostó."
+          ? `Los dos bandos pusieron lo mismo. Quien gane cobra ${cobroParche(pagoPct)} lo que apostó.`
           : p.a.total + p.b.total === 0
             ? "Nadie ha apostado todavía. El evento solo puede empezar cuando los dos bandos pongan lo mismo."
             : `Faltan ${soles(p.falta)} por ${p.bajo!.etiqueta} para que pueda empezar. También pueden retirar lo que sobra.`}

@@ -8,6 +8,7 @@ import * as T from "../src/lib/torneos";
 import * as M from "../src/lib/mercados";
 import * as R from "../src/lib/yape/recargas";
 import * as Y from "../src/lib/yape/yapi";
+import * as A from "../src/lib/acumulado";
 
 const conn = db();
 const nuevo = (usuario: string, yape: string) =>
@@ -17,7 +18,8 @@ const nuevo = (usuario: string, yape: string) =>
       .run(usuario, usuario, yape).lastInsertRowid,
   );
 const saldo = (id: number) => (conn.prepare("SELECT saldo FROM usuarios WHERE id = ?").get(id) as { saldo: number }).saldo;
-const total = () => (conn.prepare("SELECT SUM(saldo) s FROM usuarios").get() as { s: number }).s;
+// Todo el dinero: saldos de los jugadores más el pozo acumulado de la página.
+const total = () => (conn.prepare("SELECT SUM(saldo) s FROM usuarios").get() as { s: number }).s + A.saldoAcumulado();
 
 // --- Nombres ---
 assert.ok(R.nombreCoincide("Juan Carlos Pérez Rojas", "JUAN C. PEREZ R."));
@@ -560,6 +562,78 @@ assert.throws(() => R.asignarPago(pSuelto.id, qc, "jefe"), /ya está asignado/);
 R.descartarPago(libre2.nuevo ? libre2.pagoId : 0);
 assert.throws(() => R.descartarPago(libre2.nuevo ? libre2.pagoId : 0), /ya está asignado o descartado/);
 R.fijarRelojParaPruebas(() => Date.now());
+
+// --- Comisión de apuestas y pozo acumulado de la página ---
+const ka = nuevo("comA", "Kevin Alva");
+const kb = nuevo("comB", "Karen Bravo");
+const kc = nuevo("comC", "Kike Celis");
+for (const u of [ka, kb, kc]) mover(u, 10000, "ajuste", "saldo de prueba");
+const dineroC = total();
+assert.equal(A.pagoApuestas(), 100, "sin configurar se reparte todo");
+const mSin = M.crearMercado({ creadorId: ka, titulo: "Antes de la comisión", opciones: [{ etiqueta: "EG" }, { etiqueta: "OG" }] });
+assert.throws(() => A.fijarPagoApuestas(42), /lista/);
+A.fijarPagoApuestas(80);
+const mCom = M.crearMercado({ creadorId: ka, titulo: "EG vs OG", opciones: [{ etiqueta: "EG" }, { etiqueta: "OG" }] });
+assert.equal(M.mercado(mSin)!.pago_pct, 100, "una apuesta creada antes conserva su porcentaje");
+assert.equal(M.mercado(mCom)!.pago_pct, 80);
+const [cEG, cOG] = M.opcionesDe(mCom);
+M.apostar(ka, mCom, cEG.id, 1000);
+M.apostar(kb, mCom, cOG.id, 1000);
+const antesA = saldo(ka);
+M.resolverMercado(mCom, cEG.id);
+assert.equal(saldo(ka) - antesA, 1600, "con 80 % quien gana el parche cobra 1.6 veces lo que puso");
+assert.equal(A.saldoAcumulado(), 400, "el 20 % va al pozo acumulado");
+assert.equal(M.mercado(mCom)!.comision, 400);
+assert.equal(total(), dineroC, "la comisión no crea ni pierde dinero");
+// Pozo común con redondeo: 333 + 667 = 1000; se reparten 800 entre dos ganadores.
+A.fijarPagoApuestas(80);
+const mPozo = M.crearMercado({ creadorId: ka, titulo: "¿Quién gana?", modalidad: "pozo", opciones: [{ etiqueta: "A" }, { etiqueta: "B" }, { etiqueta: "C" }] });
+const [pA, pB] = M.opcionesDe(mPozo);
+M.apostar(ka, mPozo, pA.id, 333);
+M.apostar(kb, mPozo, pA.id, 334);
+M.apostar(kc, mPozo, pB.id, 333);
+M.resolverMercado(mPozo, pA.id);
+const pagosPozo = M.jugadasDe(mPozo).map((j) => j.pago ?? 0);
+assert.equal(pagosPozo.reduce((x, y) => x + y, 0), 800, "los ganadores se reparten exactamente el 80 %");
+assert.equal(A.saldoAcumulado(), 600);
+assert.equal(total(), dineroC);
+// Anular o empatar devuelve todo, sin comisión.
+const mAn = M.crearMercado({ creadorId: ka, titulo: "Se anula", opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] });
+M.apostar(ka, mAn, M.opcionesDe(mAn)[0].id, 500);
+M.apostar(kb, mAn, M.opcionesDe(mAn)[1].id, 500);
+M.empatar(mAn);
+assert.equal(A.saldoAcumulado(), 600, "anular no cobra comisión");
+// Torneos: solo el admin pone el pozo acumulado; lo que no se pone queda.
+const torneoBase = { descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 1, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true };
+assert.throws(() => T.crearTorneo({ ...torneoBase, organizadorId: ka, nombre: "Sin permiso", acumuladoPct: 50 }), /Solo el admin/);
+const tMitad = T.crearTorneo({ ...torneoBase, organizadorId: ka, nombre: "Mitad del pozo", acumuladoPct: 50, esAdmin: true });
+assert.equal(T.torneo(tMitad)!.pozo_pagina, 300);
+assert.equal(T.torneo(tMitad)!.pozo, 300, "el premio incluye la parte del pozo acumulado");
+assert.equal(A.saldoAcumulado(), 300, "la otra mitad queda para el siguiente torneo");
+assert.equal(total() + T.torneo(tMitad)!.pozo_pagina, dineroC, "lo apartado para el torneo no se pierde");
+T.cancelarTorneo(tMitad, ka, false);
+assert.equal(A.saldoAcumulado(), 600, "si se cancela, vuelve al pozo acumulado");
+assert.equal(total(), dineroC);
+// Con todo el pozo y premio fijo: el campeón se lo lleva.
+const tTodo = T.crearTorneo({ ...torneoBase, organizadorId: ka, nombre: "Todo el pozo", sumaRecaudado: false, acumuladoPct: 100, esAdmin: true });
+assert.equal(A.saldoAcumulado(), 0);
+T.crearEquipo(tTodo, ka, "Ka");
+T.crearEquipo(tTodo, kb, "Kb");
+T.iniciarTorneo(tTodo, ka, false);
+const finalTodo = T.partidasDe(tTodo).find((x) => x.equipo_a && x.equipo_b)!;
+const campeonTodo = T.equiposDe(tTodo).find((e) => e.id === finalTodo.equipo_a)!.integrantes[0].usuario_id;
+const antesCampeon = saldo(campeonTodo);
+T.reportarGanador(finalTodo.id, finalTodo.equipo_a!, ka, false);
+assert.equal(saldo(campeonTodo) - antesCampeon, 600, "el campeón cobra el pozo acumulado");
+assert.equal(total(), dineroC);
+// Sumar otra parte durante el torneo.
+A.fijarPagoApuestas(100);
+A.moverAcumulado(1000, "prueba");
+const tSuma = T.crearTorneo({ ...torneoBase, organizadorId: ka, nombre: "Suma después" });
+assert.throws(() => T.sumarAcumulado(tSuma, 50, false), /Solo el admin/);
+T.sumarAcumulado(tSuma, 50, true);
+assert.equal(T.torneo(tSuma)!.pozo_pagina, 500);
+assert.throws(() => A.moverAcumulado(-99999, "x"), /no alcanza/);
 
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);

@@ -26,6 +26,8 @@ export async function accionCrearTorneo(_: Estado, fd: FormData): Promise<Estado
       limiteLlegada: txt(fd, "limite_llegada"),
       premioBase: txt(fd, "premio_base").trim() ? leerSoles(fd.get("premio_base")) : 0,
       sumaRecaudado: fd.get("premio_fijo") !== "on",
+      acumuladoPct: num(fd, "acumulado_pct") || 0,
+      esAdmin: !!u.es_admin,
       tamEquipo: num(fd, "tam_equipo"),
       juego: txt(fd, "juego") === "ajedrez" ? "ajedrez" : "dota2",
       ritmo: txt(fd, "ritmo"),
@@ -141,6 +143,10 @@ export async function accionAumentarPremio(_: Estado, fd: FormData) {
     if (monto === null) throw new ErrorUsuario("Escribe cuánto agregas al premio, por ejemplo 20.");
     T.aumentarPremio(num(fd, "torneo_id"), u.id, monto);
   }, "Premio aumentado.");
+}
+
+export async function accionSumarAcumulado(_: Estado, fd: FormData) {
+  return ejecutar((u) => T.sumarAcumulado(num(fd, "torneo_id"), num(fd, "pct"), !!u.es_admin), "Se sumó al premio.");
 }
 
 export async function accionAsistencia(_: Estado, fd: FormData) {

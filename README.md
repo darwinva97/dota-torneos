@@ -58,6 +58,19 @@ https://apuestas.bezenti.com.
 El primer usuario que se registra es admin. Para nombrar a otro:
 `npx tsx --conditions=react-server scripts/hacer-admin.ts <usuario>`.
 
+## Comisión de apuestas y pozo acumulado
+
+El admin elige en `/admin` qué porcentaje de lo apostado se reparten los ganadores (100, 95… 50; empezó en
+80). Cada apuesta guarda el porcentaje vigente al crearse (`mercados.pago_pct`). Al resolverse, la diferencia
+(`mercados.comision`) va al **pozo acumulado de la página** (`src/lib/acumulado.ts`, tabla `acumulado`, que se
+ve en `/pozo`, en la barra lateral y en el inicio). Si la apuesta se anula, se empata o nadie acierta, se
+devuelve todo y no hay comisión.
+
+Al crear un torneo, el admin decide qué parte del pozo acumulado entra al premio (nada, 25, 50, 75 % o todo):
+se aparta al momento (`torneos.pozo_pagina`) y el resto queda para el siguiente. Durante el torneo puede sumar
+más desde su página. Si el torneo se cancela, vuelve al pozo. El Yape del admin debe cubrir también el pozo
+acumulado.
+
 ## Recargas con Yape
 
 1. «Recargar» abre una pantalla de preparación (abrir Yape, tener el número y el

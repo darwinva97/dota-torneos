@@ -8,6 +8,7 @@ import { movimientos, resumen } from "@/lib/billetera";
 import { soles } from "@/lib/dinero";
 import { Cargando, Dinero, Estado, Stat, Vacio } from "@/components/ui";
 import { ListaMovimientos } from "@/components/movimientos";
+import { PozoAcumulado } from "@/components/acumulado";
 
 export default function Inicio() {
   return (
@@ -55,6 +56,8 @@ async function Contenido() {
           <AccesoRapido href="/apuestas" Icono={Timer} texto="Apuestas abiertas" />
         </div>
       </section>
+
+      <PozoAcumulado />
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat etiqueta="Premios ganados" tono={r.premios ? "text-oro" : ""}>
