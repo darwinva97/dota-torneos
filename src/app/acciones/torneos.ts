@@ -9,6 +9,7 @@ import * as T from "@/lib/torneos";
 import * as L from "@/lib/lichess";
 import { esLichess } from "@/lib/formatos";
 import { crearMercado, mercadosDeTorneo } from "@/lib/mercados";
+import { cambiarAlineacion } from "@/lib/alineaciones";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
 const txt = (fd: FormData, k: string) => String(fd.get(k) ?? "");
@@ -215,4 +216,32 @@ export async function accionApostarEnTorneo(_: Estado, fd: FormData): Promise<Es
     return aEstado(e);
   }
   redirect(`/apuestas/${id}`);
+}
+
+// Cambio de jugadores en una partida: devuelve sus apuestas, las reabre vacías
+// y avisa a quienes apostaron. Devuelve el mensaje para el grupo de WhatsApp.
+export type EstadoAlineacion = (Estado & { mensaje?: string }) | null;
+
+export async function accionCambiarAlineacion(_: EstadoAlineacion, fd: FormData): Promise<EstadoAlineacion> {
+  const u = await exigirUsuario();
+  try {
+    const r = cambiarAlineacion({
+      partidaId: num(fd, "partida_id"),
+      equipoId: num(fd, "equipo_id"),
+      integrantes: fd.getAll("integrante").map(Number),
+      suplentes: txt(fd, "suplentes"),
+      usuarioId: u.id,
+      esAdmin: !!u.es_admin,
+      urlBase: process.env.PUBLIC_URL,
+    });
+    refresh();
+    return {
+      ok: r.apostadores
+        ? `Jugadores cambiados. Se devolvió todo lo apostado a ${r.apostadores} ${r.apostadores === 1 ? "persona" : "personas"} y ya les llegó un aviso.`
+        : "Jugadores cambiados. Nadie había apostado todavía.",
+      mensaje: r.mensaje,
+    };
+  } catch (e) {
+    return aEstado(e);
+  }
 }

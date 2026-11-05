@@ -9,6 +9,8 @@ import * as M from "../src/lib/mercados";
 import * as R from "../src/lib/yape/recargas";
 import * as Y from "../src/lib/yape/yapi";
 import * as A from "../src/lib/acumulado";
+import * as AL from "../src/lib/alineaciones";
+import * as AV from "../src/lib/avisos";
 
 const conn = db();
 const nuevo = (usuario: string, yape: string) =>
@@ -634,6 +636,64 @@ assert.throws(() => T.sumarAcumulado(tSuma, 50, false), /Solo el admin/);
 T.sumarAcumulado(tSuma, 50, true);
 assert.equal(T.torneo(tSuma)!.pozo_pagina, 500);
 assert.throws(() => A.moverAcumulado(-99999, "x"), /no alcanza/);
+
+// --- Cambio de alineación en una partida: se devuelven sus apuestas ---
+A.fijarPagoApuestas(100);
+const [la1, la2, lb1, lb2, apos1, apos2, sup] = ["al1", "al2", "bl1", "bl2", "apo1", "apo2", "supl"].map((n, i) => nuevo(n, `Nombre${i} Apellido${i}`));
+for (const u of [la1, la2, lb1, lb2, apos1, apos2, sup]) mover(u, 10000, "ajuste", "saldo de prueba");
+const dineroL = total();
+const tl = T.crearTorneo({ organizadorId: la1, nombre: "Copa alineación", descripcion: "", entrada: 0, garantia: 0, limiteLlegada: "", tamEquipo: 2, maxEquipos: 2, reparto: "ganador", fecha: "", premioBase: 0, sumaRecaudado: true });
+const eqA = T.crearEquipo(tl, la1, "Leones");
+T.unirseEquipo(T.equiposDe(tl).find((e) => e.nombre === "Leones")!.id, la2);
+T.crearEquipo(tl, lb1, "Lobos");
+T.unirseEquipo(T.equiposDe(tl).find((e) => e.nombre === "Lobos")!.id, lb2);
+void eqA;
+T.iniciarTorneo(tl, la1, false);
+const pl = T.partidasDe(tl).find((x) => x.equipo_a && x.equipo_b)!;
+// El sorteo es aleatorio: se busca a cada equipo por su nombre, no por su lado.
+const eqLeones = T.equiposDe(tl).find((e) => e.nombre === "Leones")!.id;
+const eqLobos = T.equiposDe(tl).find((e) => e.nombre === "Lobos")!.id;
+assert.deepEqual(AL.alineacion(pl.id, eqLeones).map((j) => j.usuario_id).sort(), T.equiposDe(tl).find((e) => e.id === eqLeones)!.integrantes.map((i) => i.usuario_id).sort(), "por defecto juegan los inscritos");
+const ml = M.crearMercado({ creadorId: apos1, titulo: "Leones contra Lobos", torneoId: tl, partidaId: pl.id, opciones: [{ etiqueta: "A", equipoId: eqLeones }, { etiqueta: "B", equipoId: eqLobos }] });
+const [olA, olB] = M.opcionesDe(ml);
+M.apostar(apos1, ml, olA.id, 700);
+M.apostar(apos2, ml, olB.id, 700);
+T.marcarEnJuego(pl.id, la1, false);
+const integrantesA = T.equiposDe(tl).find((e) => e.id === eqLeones)!.integrantes.map((i) => i.usuario_id);
+const quedan = [integrantesA[0]];
+const cambioBase = { partidaId: pl.id, equipoId: eqLeones, integrantes: quedan, usuarioId: la1, esAdmin: false };
+assert.throws(() => AL.cambiarAlineacion({ ...cambioBase, suplentes: "supl", usuarioId: apos1 }), /Solo quien organiza/);
+assert.throws(() => AL.cambiarAlineacion({ ...cambioBase, integrantes: integrantesA, suplentes: "" }), /No cambiaste/);
+assert.throws(() => AL.cambiarAlineacion({ ...cambioBase, suplentes: "bl1" }), /ya juega por el rival/);
+assert.throws(() => AL.cambiarAlineacion({ ...cambioBase, suplentes: "nadie" }), /No hay nadie/);
+assert.throws(() => AL.cambiarAlineacion({ ...cambioBase, suplentes: "supl apo1" }), /como mucho 2/);
+const sAp1 = saldo(apos1), sAp2 = saldo(apos2);
+const res = AL.cambiarAlineacion({ ...cambioBase, suplentes: "@supl", urlBase: "https://apuestas.bezenti.com" });
+assert.deepEqual([saldo(apos1) - sAp1, saldo(apos2) - sAp2], [700, 700], "se devuelve lo apostado a cada uno");
+assert.equal(res.devuelto, 1400);
+assert.equal(res.apostadores, 2);
+assert.deepEqual(res.entran, ["supl"]);
+assert.equal(M.mercado(ml)!.estado, "anulado");
+const nueva = M.mercado(res.nuevaApuesta!)!;
+assert.equal(nueva.estado, "abierto");
+assert.equal(nueva.pozo, 0, "la apuesta nueva empieza vacía");
+assert.equal(nueva.partida_id, pl.id);
+assert.equal(T.partidasDe(tl).find((x) => x.id === pl.id)!.estado, "pendiente", "si ya se jugaba, vuelve a por jugar");
+assert.ok(AL.alineacionCambiada(pl.id));
+assert.ok(AL.alineacion(pl.id, eqLeones).some((j) => j.usuario === "supl" && j.suplente), "el suplente aparece marcado");
+assert.equal(AV.avisosSinLeer(apos1), 1);
+assert.match(AV.avisosDe(apos1)[0].texto, /entra supl.*Te devolvimos S\/ 7.00/);
+assert.equal(AV.avisosDe(apos1)[0].enlace, `/apuestas/${res.nuevaApuesta}`);
+assert.match(res.mensaje, /Cambio en Leones contra Lobos.*\n.*vuelvan a apostar: https:\/\/apuestas.bezenti.com\/apuestas\//);
+AV.marcarLeidos(apos1);
+assert.equal(AV.avisosSinLeer(apos1), 0);
+// Se vuelve a apostar en la nueva y se resuelve sola con el resultado.
+const [nA, nB] = M.opcionesDe(nueva.id);
+M.apostar(apos1, nueva.id, nA.id, 500);
+M.apostar(apos2, nueva.id, nB.id, 500);
+T.reportarGanador(pl.id, eqLeones, la1, false);
+assert.equal(M.mercado(nueva.id)!.estado, "resuelto");
+assert.equal(total(), dineroL, "cambiar la alineación no crea ni pierde dinero");
 
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);

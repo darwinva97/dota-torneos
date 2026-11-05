@@ -173,6 +173,28 @@ CREATE TABLE IF NOT EXISTS deudas (
   resuelto TEXT
 );
 
+-- Quién juega por cada equipo en una partida concreta, cuando no son los
+-- integrantes inscritos (un cambio o un suplente). Sin filas: juegan los
+-- integrantes del equipo.
+CREATE TABLE IF NOT EXISTS alineaciones (
+  partida_id INTEGER NOT NULL REFERENCES partidas(id),
+  equipo_id INTEGER NOT NULL REFERENCES equipos(id),
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  PRIMARY KEY (partida_id, usuario_id)
+);
+
+-- Avisos para un jugador (por ejemplo, que le devolvimos una apuesta). Se ven
+-- en la campana.
+CREATE TABLE IF NOT EXISTS avisos (
+  id INTEGER PRIMARY KEY,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+  texto TEXT NOT NULL,
+  enlace TEXT NOT NULL DEFAULT '',
+  leido INTEGER NOT NULL DEFAULT 0,
+  creado TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS avisos_usuario ON avisos(usuario_id, leido, id);
+
 -- Ajustes de la página que cambia el admin (clave → valor).
 CREATE TABLE IF NOT EXISTS config (
   clave TEXT PRIMARY KEY,

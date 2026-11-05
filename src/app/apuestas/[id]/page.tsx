@@ -54,6 +54,14 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                 Ver torneo
               </Link>
             )}
+            {m.torneo_id && m.partida_id && (
+              <Link
+                href={`/torneos/${m.torneo_id}/partida/${m.partida_id}`}
+                className="text-sm text-niebla underline underline-offset-4 hover:text-pergamino"
+              >
+                Ver quién juega
+              </Link>
+            )}
           </div>
           <h1 className="text-4xl sm:text-5xl">{m.titulo}</h1>
           <p className="mt-2 text-niebla">

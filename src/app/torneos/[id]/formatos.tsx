@@ -38,7 +38,19 @@ function nombreRonda(llave: string, ronda: number, total: number, formato: strin
   return `Ronda ${ronda}`;
 }
 
-export function Cuadro({ t, partidas, equipos, organiza }: { t: Torneo; partidas: Partida[]; equipos: Equipo[]; organiza: boolean }) {
+export function Cuadro({
+  t,
+  partidas,
+  equipos,
+  organiza,
+  cambiadas,
+}: {
+  t: Torneo;
+  partidas: Partida[];
+  equipos: Equipo[];
+  organiza: boolean;
+  cambiadas: Set<number>;
+}) {
   const nombre: Nombre = (id) => equipos.find((e) => e.id === id)?.nombre;
   // Las partidas de huecos contra huecos no aportan nada: se ocultan.
   const visibles = partidas.filter((p) => !(p.estado === "bye" && p.equipo_a === null && p.equipo_b === null));
@@ -65,7 +77,7 @@ export function Cuadro({ t, partidas, equipos, organiza }: { t: Torneo; partidas
                     <ul className="flex flex-1 flex-col justify-around gap-4">
                       {lista.map((p) => (
                         <li key={p.id}>
-                          <TarjetaPartida p={p} nombre={nombre} t={t} organiza={organiza} />
+                          <TarjetaPartida p={p} nombre={nombre} t={t} organiza={organiza} cambiada={cambiadas.has(p.id)} />
                         </li>
                       ))}
                     </ul>
@@ -80,7 +92,19 @@ export function Cuadro({ t, partidas, equipos, organiza }: { t: Torneo; partidas
   );
 }
 
-function TarjetaPartida({ p, nombre, t, organiza }: { p: Partida; nombre: Nombre; t: Torneo; organiza: boolean }) {
+function TarjetaPartida({
+  p,
+  nombre,
+  t,
+  organiza,
+  cambiada,
+}: {
+  p: Partida;
+  nombre: Nombre;
+  t: Torneo;
+  organiza: boolean;
+  cambiada: boolean;
+}) {
   const lista = p.estado === "pendiente" || p.estado === "en_juego";
   const completa = !!(p.equipo_a && p.equipo_b);
   const puedeReportar = organiza && t.estado === "en_curso" && lista && completa;
@@ -114,13 +138,20 @@ function TarjetaPartida({ p, nombre, t, organiza }: { p: Partida; nombre: Nombre
     <div className={`rounded-md border bg-losa ${final ? "border-oro/50" : "border-borde"} ${p.estado === "bye" ? "opacity-60" : ""}`}>
       {p.estado === "en_juego" && <div className="border-b border-borde px-3 py-1 text-sm text-radiant">Jugándose ahora</div>}
       {p.estado === "bye" && <div className="border-b border-borde px-3 py-1 text-sm text-niebla">Pase directo</div>}
+      {cambiada && <div className="border-b border-borde px-3 py-1 text-sm text-oro">Cambio de jugadores</div>}
       <div className="divide-y divide-borde">
         {fila(p.equipo_a, p.lista_a)}
         {fila(p.equipo_b, p.lista_b)}
       </div>
-      {completa && p.estado === "pendiente" && t.estado === "en_curso" && (
+      {completa && p.estado === "pendiente" && t.estado === "en_curso" ? (
         <AccionesPartida p={p} t={t} organiza={organiza} />
-      )}
+      ) : completa && p.estado !== "bye" ? (
+        <div className="border-t border-borde px-3 py-2">
+          <Link href={`/torneos/${t.id}/partida/${p.id}`} className="text-sm text-niebla hover:text-pergamino">
+            Jugadores{organiza && p.estado === "en_juego" && t.estado === "en_curso" ? " (cambiar)" : ""}
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -133,6 +164,9 @@ function AccionesPartida({ p, t, organiza }: { p: Partida; t: Torneo; organiza: 
         <input type="hidden" name="partida_id" value={p.id} />
         <button className="text-sm text-oro hover:underline">Apostar</button>
       </Formulario>
+      <Link href={`/torneos/${t.id}/partida/${p.id}`} className="text-sm text-niebla hover:text-pergamino">
+        {organiza ? "Jugadores (cambiar)" : "Jugadores"}
+      </Link>
       {organiza && (
         <Formulario accion={accionEnJuego} className="ml-auto">
           <input type="hidden" name="partida_id" value={p.id} />
@@ -180,7 +214,19 @@ export function TablaPuntos({ filas, nombre, sistema }: { filas: Fila[]; nombre:
   );
 }
 
-export function RondasPuntos({ t, partidas, nombre, organiza }: { t: Torneo; partidas: Partida[]; nombre: Nombre; organiza: boolean }) {
+export function RondasPuntos({
+  t,
+  partidas,
+  nombre,
+  organiza,
+  cambiadas,
+}: {
+  t: Torneo;
+  partidas: Partida[];
+  nombre: Nombre;
+  organiza: boolean;
+  cambiadas: Set<number>;
+}) {
   const rondas = [...new Set(partidas.map((p) => p.ronda))].sort((a, b) => b - a);
   const etiqueta = (p: Partida) =>
     p.resultado === "tablas" ? "½-½" : p.resultado === "a" ? "1-0" : p.resultado === "b" ? "0-1" : "";
@@ -206,7 +252,11 @@ export function RondasPuntos({ t, partidas, nombre, organiza }: { t: Torneo; par
                       <span className="min-w-0 flex-1">
                         <span className="text-niebla">♔</span> {nombre(p.equipo_a)} <span className="text-niebla">contra ♚</span>{" "}
                         {nombre(p.equipo_b)}
+                        {cambiadas.has(p.id) && <span className="ml-2 text-sm text-oro">cambio de jugadores</span>}
                       </span>
+                      <Link href={`/torneos/${t.id}/partida/${p.id}`} className="text-sm text-niebla hover:text-pergamino">
+                        Jugadores
+                      </Link>
                       {p.resultado ? (
                         <span className="cifra text-lg text-oro">{etiqueta(p)}</span>
                       ) : organiza && t.estado === "en_curso" ? (

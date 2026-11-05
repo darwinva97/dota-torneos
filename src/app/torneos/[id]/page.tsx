@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { saldoAcumulado } from "@/lib/acumulado";
+import { partidasConCambio } from "@/lib/alineaciones";
 import { Suspense } from "react";
 import { exigirUsuario, type Usuario } from "@/lib/sesion";
 import {
@@ -47,6 +48,7 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
   const equipos = equiposDe(t.id);
   const partidas = partidasDe(t.id);
   const mercados = mercadosDeTorneo(t.id);
+  const cambiadas = partidasConCambio(t.id);
   const organiza = t.organizador_id === u.id || !!u.es_admin;
   const miEquipo = equipos.find((e) => e.integrantes.some((i) => i.usuario_id === u.id));
   const campeon = equipos.find((e) => e.id === t.campeon_id);
@@ -120,10 +122,10 @@ async function Contenido({ params }: { params: PageProps<"/torneos/[id]">["param
           ) : esPorPuntos(t.formato) ? (
             <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[1fr_1fr]">
               <TablaPuntos filas={tablaDe(t)} nombre={nombre} sistema={t.formato === "liga" ? "liga" : "suizo"} />
-              <RondasPuntos t={t} partidas={partidas} nombre={nombre} organiza={organiza} />
+              <RondasPuntos t={t} partidas={partidas} nombre={nombre} organiza={organiza} cambiadas={cambiadas} />
             </div>
           ) : (
-            <Cuadro t={t} partidas={partidas} equipos={equipos} organiza={organiza} />
+            <Cuadro t={t} partidas={partidas} equipos={equipos} organiza={organiza} cambiadas={cambiadas} />
           )}
           {organiza && t.estado === "en_curso" && !esLichess(t.formato) && (
             <p className="text-sm text-niebla">

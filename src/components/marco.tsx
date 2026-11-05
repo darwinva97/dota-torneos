@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Bell, LogOut, Plus } from "lucide-react";
 import { usuarioActual } from "@/lib/sesion";
 import { solicitudesPendientes } from "@/lib/billetera";
+import { avisosSinLeer } from "@/lib/avisos";
 import { accionSalir } from "@/app/acciones/cuenta";
 import { Dinero } from "./ui";
 import { EnlacesNav, NavActiva } from "./navegacion";
@@ -91,7 +92,9 @@ async function CuentaConDatos() {
     );
   }
   const pendientes = u.es_admin ? solicitudesPendientes() : null;
-  const totalPendientes = pendientes ? pendientes.retiros + pendientes.recargas + pendientes.pagos : 0;
+  const delAdmin = pendientes ? pendientes.retiros + pendientes.recargas + pendientes.pagos : 0;
+  const sinLeer = avisosSinLeer(u.id);
+  const totalPendientes = delAdmin + sinLeer;
   return (
     <div className="flex items-center gap-2 sm:gap-3">
       {/* Saldo + recarga rápida, como el contador de oro de la tienda. */}
@@ -108,12 +111,12 @@ async function CuentaConDatos() {
           <Plus className="size-5" strokeWidth={2.25} aria-hidden />
         </Link>
       </div>
-      {u.es_admin ? (
+      {(
         <Link
-          href="/admin"
+          href="/avisos"
           className="relative rounded-md p-2 text-niebla hover:bg-white/5 hover:text-pergamino"
-          title={totalPendientes ? `${totalPendientes} solicitudes por atender` : "Sin solicitudes"}
-          aria-label={`Solicitudes del admin: ${totalPendientes}`}
+          title={totalPendientes ? `${totalPendientes} avisos` : "Sin avisos nuevos"}
+          aria-label={`Avisos: ${totalPendientes}`}
         >
           <Bell className="size-5" strokeWidth={1.75} aria-hidden />
           {totalPendientes > 0 && (
@@ -122,7 +125,7 @@ async function CuentaConDatos() {
             </span>
           )}
         </Link>
-      ) : null}
+      )}
       <Link
         href="/perfil"
         className="flex items-center gap-2 rounded-md p-1.5 text-niebla hover:bg-white/5 hover:text-pergamino"

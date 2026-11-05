@@ -71,6 +71,19 @@ se aparta al momento (`torneos.pozo_pagina`) y el resto queda para el siguiente.
 más desde su página. Si el torneo se cancela, vuelve al pozo. El Yape del admin debe cubrir también el pozo
 acumulado.
 
+## Cambio de jugadores en una partida
+
+Por defecto en cada partida juegan los integrantes inscritos del equipo. Si en un enfrentamiento juega otro
+(un cambio o un suplente que sea usuario de la página), quien organiza lo registra en
+`/torneos/{id}/partida/{pid}` (`src/lib/alineaciones.ts`, tabla `alineaciones`). Al guardar:
+
+1. La apuesta de esa partida se anula y se devuelve todo a cada uno.
+2. Se abre una apuesta nueva igual y vacía (si ya se jugaba, la partida vuelve a «por jugar»).
+3. Cada persona que había apostado recibe un aviso en la campana (`/avisos`, tabla `avisos`) con el enlace.
+4. Al organizador se le da un mensaje listo para pegar en el grupo de WhatsApp.
+
+Las apuestas al campeón del torneo no se tocan, y el premio sigue siendo de los integrantes inscritos.
+
 ## Recargas con Yape
 
 1. «Recargar» abre una pantalla de preparación (abrir Yape, tener el número y el
