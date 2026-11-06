@@ -66,16 +66,44 @@ async function gestionar(fd: FormData, fn: (m: M.Mercado) => void, ok: string): 
   return { ok };
 }
 
-export async function accionCerrarApuesta(_: Estado, fd: FormData) {
-  return gestionar(fd, (m) => M.cerrarMercado(m.id), "Apuesta cerrada: ya nadie puede entrar.");
+// Bloquear lo pueden quien creó la apuesta, quien organiza su torneo o un admin.
+export async function accionBloquear(_: Estado, fd: FormData): Promise<Estado> {
+  const u = await exigirUsuario();
+  let quedo: "cerrado" | "anulado";
+  try {
+    const m = M.mercado(num(fd, "mercado_id"));
+    exigir(m, "Esa apuesta no existe.");
+    exigir(await puedeIgualar(u, m), "Solo quien creó la apuesta puede bloquearla.");
+    quedo = M.bloquearMercado(m.id);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return quedo === "anulado"
+    ? { ok: "Nadie apostó al otro bando: se anuló y se devolvió todo." }
+    : { ok: "Apuestas bloqueadas: ya nadie puede entrar ni retirarse." };
 }
 
 export async function accionResolver(_: Estado, fd: FormData) {
   return gestionar(fd, (m) => M.resolverMercado(m.id, num(fd, "opcion_id")), "Apuesta resuelta y pagada.");
 }
 
+// Una vez bloqueada, anular o declarar empate solo lo puede un admin: así
+// nadie la anula al ver que su bando va perdiendo.
+function exigirAdminSiBloqueada(m: M.Mercado, esAdmin: number) {
+  exigir(m.estado === "abierto" || esAdmin, "La apuesta ya está bloqueada: solo un admin puede anularla o declarar empate.");
+}
+
 export async function accionAnular(_: Estado, fd: FormData) {
-  return gestionar(fd, (m) => M.anularMercado(m.id), "Apuesta anulada. Se devolvió todo.");
+  const u = await exigirUsuario();
+  return gestionar(
+    fd,
+    (m) => {
+      exigirAdminSiBloqueada(m, u.es_admin);
+      M.anularMercado(m.id);
+    },
+    "Apuesta anulada. Se devolvió todo.",
+  );
 }
 
 export async function accionRetirarApuesta(_: Estado, fd: FormData): Promise<Estado> {
@@ -104,5 +132,13 @@ export async function accionDevolverNoParchado(_: Estado, fd: FormData): Promise
 }
 
 export async function accionEmpatar(_: Estado, fd: FormData) {
-  return gestionar(fd, (m) => M.empatar(m.id), "Empate: se devolvió lo apostado a todos.");
+  const u = await exigirUsuario();
+  return gestionar(
+    fd,
+    (m) => {
+      exigirAdminSiBloqueada(m, u.es_admin);
+      M.empatar(m.id);
+    },
+    "Empate: se devolvió lo apostado a todos.",
+  );
 }

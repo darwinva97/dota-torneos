@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { exigirUsuario } from "@/lib/sesion";
-import { estadoParche, jugadasDe, mercado, mensajeSinParche, opcionesDe } from "@/lib/mercados";
+import { estadoParche, jugadasDe, mercado, opcionesDe } from "@/lib/mercados";
 import { torneo } from "@/lib/torneos";
 import { cobroParche, soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
@@ -10,7 +11,7 @@ import { Cargando, Dinero, Estado } from "@/components/ui";
 import {
   accionAnular,
   accionApostar,
-  accionCerrarApuesta,
+  accionBloquear,
   accionDevolverNoParchado,
   accionEmpatar,
   accionResolver,
@@ -204,7 +205,7 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
           </Formulario>
         ) : (
           <div className="panel p-5 text-niebla">
-            {m.estado === "cerrado" && "Ya no se aceptan jugadas. Falta conocer el resultado."}
+            {m.estado === "cerrado" && "Apuestas bloqueadas: ya nadie puede entrar ni retirarse. Falta el resultado."}
             {m.estado === "resuelto" && "Resuelta y pagada."}
             {m.estado === "anulado" && "Anulada: se devolvió lo apostado a todos."}
           </div>
@@ -222,6 +223,7 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
             )}
             {m.estado === "abierto" && (
               <Formulario accion={accionRetirarApuesta} confirmar="¿Retirar tu apuesta? Vuelve a tu saldo." className="mt-3">
+                <p className="ayuda mb-2">Puedes retirarla hasta que se bloqueen las apuestas al empezar la partida.</p>
                 <input type="hidden" name="mercado_id" value={m.id} />
                 <Enviar variante="boton-sobrio" className="w-full py-1.5 text-sm">
                   Retirar mi apuesta
@@ -231,20 +233,34 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
           </div>
         )}
 
+        {puedeIgualar && m.estado === "abierto" && (
+          <Formulario
+            accion={accionBloquear}
+            className="panel hud space-y-2 p-5"
+            confirmar={
+              parche && !parche.parchada
+                ? "Se devuelve lo que sobra del bando que puso de más y nadie podrá entrar ni retirarse. ¿Bloquear?"
+                : "Nadie podrá entrar ni retirarse. ¿Bloquear?"
+            }
+          >
+            <input type="hidden" name="mercado_id" value={m.id} />
+            <Enviar className="w-full py-3 text-lg">
+              <Lock className="size-5" aria-hidden /> Bloquear apuestas
+            </Enviar>
+            <p className="ayuda">
+              Púlsalo cuando empiece la partida: desde ahí nadie puede entrar ni retirar su apuesta.
+              {parche && !parche.parchada ? ` Antes se devuelve lo que sobra (${soles(parche.falta)}) para dejarla parchada.` : ""}
+            </p>
+          </Formulario>
+        )}
+
         {gestiona && viva && (
           <div className="panel space-y-4 p-5">
             <h2 className="text-2xl">Gestionar</h2>
-            {!listaParaResolver && parche && <p className="text-sm text-dire-claro">{mensajeSinParche(parche)}</p>}
-            {m.estado === "abierto" && listaParaResolver && (
-              <Formulario accion={accionCerrarApuesta}>
-                <input type="hidden" name="mercado_id" value={m.id} />
-                <Enviar variante="boton-sobrio" className="w-full">
-                  Cerrar jugadas y empezar
-                </Enviar>
-                <p className="ayuda">Ciérrala cuando empiece lo que se apuesta.</p>
-              </Formulario>
+            {m.estado === "abierto" && (
+              <p className="text-sm text-niebla">Para resolverla, primero bloquea las apuestas.</p>
             )}
-            {listaParaResolver && (
+            {listaParaResolver && m.estado === "cerrado" && (
             <Formulario accion={accionResolver} confirmar="¿Seguro? Se paga a los ganadores y no se puede deshacer.">
               <input type="hidden" name="mercado_id" value={m.id} />
               <label className="block">
@@ -260,7 +276,7 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
               <Enviar className="mt-3 w-full">Resolver y pagar</Enviar>
             </Formulario>
             )}
-            {parche && (
+            {parche && (m.estado === "abierto" || !!u.es_admin) && (
               <Formulario accion={accionEmpatar} confirmar="¿Empate? Se devuelve lo apostado a todos.">
                 <input type="hidden" name="mercado_id" value={m.id} />
                 <Enviar variante="boton-sobrio" className="w-full">
@@ -268,12 +284,14 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
                 </Enviar>
               </Formulario>
             )}
-            <Formulario accion={accionAnular} confirmar="¿Anular? Se devuelve lo apostado a todos.">
-              <input type="hidden" name="mercado_id" value={m.id} />
-              <Enviar variante="boton-peligro" className="w-full">
-                Anular y devolver
-              </Enviar>
-            </Formulario>
+            {(m.estado === "abierto" || !!u.es_admin) && (
+              <Formulario accion={accionAnular} confirmar="¿Anular? Se devuelve lo apostado a todos.">
+                <input type="hidden" name="mercado_id" value={m.id} />
+                <Enviar variante="boton-peligro" className="w-full">
+                  Anular y devolver
+                </Enviar>
+              </Formulario>
+            )}
           </div>
         )}
       </aside>

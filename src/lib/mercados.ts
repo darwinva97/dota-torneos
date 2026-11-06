@@ -259,6 +259,23 @@ export function cerrarMercado(mercadoId: number) {
   db().prepare("UPDATE mercados SET estado = 'cerrado' WHERE id = ? AND estado = 'abierto'").run(mercadoId);
 }
 
+// Bloquea la apuesta cuando empieza lo que se apuesta: nadie más puede entrar
+// ni retirarse. Si es parchada y no está igual, primero se devuelve lo que
+// sobra del bando que puso de más; si un bando está vacío, se anula y se
+// devuelve todo. Devuelve el estado en que queda.
+export function bloquearMercado(mercadoId: number) {
+  return transaccion(() => {
+    const m = mercado(mercadoId);
+    exigir(m, "Esa apuesta no existe.");
+    exigir(m.estado === "abierto", "Esta apuesta ya está bloqueada.");
+    const p = estadoParche(mercadoId);
+    if (p && !p.parchada) devolverNoParchado(mercadoId);
+    if (mercado(mercadoId)!.estado === "anulado") return "anulado" as const;
+    db().prepare("UPDATE mercados SET estado = 'cerrado' WHERE id = ? AND estado = 'abierto'").run(mercadoId);
+    return "cerrado" as const;
+  });
+}
+
 export function empatar(mercadoId: number) {
   anularMercado(mercadoId, "Empate, se devuelve");
 }

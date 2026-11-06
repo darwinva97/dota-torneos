@@ -77,7 +77,7 @@ const ESTADOS: Record<string, [string, string]> = {
   finalizado: ["Finalizado", "border-white/10 text-niebla"],
   cancelado: ["Cancelado", "border-dire/40 text-dire-claro"],
   abierto: ["Abierta", "border-oro/40 bg-oro/10 text-oro"],
-  cerrado: ["Cerrada, esperando resultado", "border-mana/40 bg-mana/10 text-mana"],
+  cerrado: ["Bloqueada, esperando resultado", "border-mana/40 bg-mana/10 text-mana"],
   resuelto: ["Resuelta", "border-radiant/40 bg-radiant/10 text-radiant"],
   anulado: ["Anulada", "border-white/10 text-niebla"],
   pendiente: ["Esperando al admin", "border-oro/40 bg-oro/10 text-oro"],

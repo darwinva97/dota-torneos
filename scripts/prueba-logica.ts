@@ -334,6 +334,22 @@ assert.throws(() => M.retirarApuesta(pb, mp), /cerrada/);
 const sb = saldo(pb);
 M.resolverMercado(mp, opB.id);
 assert.equal(saldo(pb) - sb, 2400, "quien gana el parche cobra el doble");
+// Bloquear: iguala devolviendo lo que sobra y deja de aceptar entradas y retiros.
+const mb = M.crearMercado({ creadorId: pa, titulo: "Bloqueo", opciones: [{ etiqueta: "Pablo" }, { etiqueta: "Bruno" }] });
+const [bP, bB] = M.opcionesDe(mb);
+M.apostar(pa, mb, bP.id, 1000);
+M.apostar(pb, mb, bB.id, 600);
+const spBloqueo = saldo(pa);
+assert.equal(M.bloquearMercado(mb), "cerrado");
+assert.equal(saldo(pa) - spBloqueo, 400, "se devuelve lo que sobraba");
+assert.ok(M.estadoParche(mb)!.parchada);
+assert.throws(() => M.retirarApuesta(pb, mb), /cerrada/, "ya no se puede retirar");
+assert.throws(() => M.apostar(pc, mb, bP.id, 100), /ya no acepta/);
+assert.throws(() => M.bloquearMercado(mb), /ya está bloqueada/);
+M.resolverMercado(mb, bB.id);
+const mv2 = M.crearMercado({ creadorId: pa, titulo: "Sin rival 2", opciones: [{ etiqueta: "Sí" }, { etiqueta: "No" }] });
+M.apostar(pa, mv2, M.opcionesDe(mv2)[0].id, 300);
+assert.equal(M.bloquearMercado(mv2), "anulado", "con un bando vacío se anula al bloquear");
 // Empate (tablas): se devuelve a todos.
 const me = M.crearMercado({ creadorId: pa, titulo: "Revancha", opciones: [{ etiqueta: "Pablo" }, { etiqueta: "Bruno" }] });
 const [eP, eB] = M.opcionesDe(me);
