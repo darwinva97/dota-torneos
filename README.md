@@ -60,8 +60,8 @@ El primer usuario que se registra es admin. Para nombrar a otro:
 
 ## Comisión de apuestas y pozo acumulado
 
-El admin elige en `/admin` qué porcentaje de lo apostado se reparten los ganadores (100, 95… 50; empezó en
-80). Cada apuesta guarda el porcentaje vigente al crearse (`mercados.pago_pct`). Al resolverse, la diferencia
+El admin elige en `/admin` qué porcentaje de lo apostado se reparten los ganadores (100, 95… 50; ahora
+90, es decir, 10 % de comisión). Cada apuesta guarda el porcentaje vigente al crearse (`mercados.pago_pct`). Al resolverse, la diferencia
 (`mercados.comision`) va al **pozo acumulado de la página** (`src/lib/acumulado.ts`, tabla `acumulado`, que se
 ve en `/pozo`, en la barra lateral y en el inicio). Si la apuesta se anula, se empata o nadie acierta, se
 devuelve todo y no hay comisión.
