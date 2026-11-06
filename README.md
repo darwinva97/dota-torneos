@@ -150,6 +150,7 @@ npm run dev
 DATA_DIR=$(mktemp -d) npx tsx --conditions=react-server scripts/prueba-logica.ts   # lógica de dinero
 DATA_DIR=$(mktemp -d) npx tsx --conditions=react-server scripts/prueba-lichess.ts  # Lichess (simulado)
 npx tsx scripts/prueba-cuadros.ts                                                  # cuadros y suizo
+npx tsx scripts/prueba-cruces.ts                                                   # quién contra quién en el parche
 npm run build && systemctl --user restart el-pozo                                  # puerto 4090
 ```
 

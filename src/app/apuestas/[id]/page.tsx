@@ -7,7 +7,8 @@ import { estadoParche, jugadasDe, mercado, opcionesDe } from "@/lib/mercados";
 import { torneo } from "@/lib/torneos";
 import { cobroParche, soles } from "@/lib/dinero";
 import { Formulario, Enviar } from "@/components/formulario";
-import { Cargando, Dinero, Estado } from "@/components/ui";
+import { Cargando, Dinero, Estado, fecha } from "@/components/ui";
+import { cruzar, type JugadaCruce } from "@/lib/cruces";
 import {
   accionAnular,
   accionApostar,
@@ -73,6 +74,15 @@ async function Contenido({ params }: { params: PageProps<"/apuestas/[id]">["para
         </header>
 
         {parche && viva && <PanelParche p={parche} puedeIgualar={puedeIgualar} mercadoId={m.id} pagoPct={m.pago_pct} />}
+        {parche && jugadas.length > 0 && (
+          <CrucesParche
+            etiquetaA={parche.a.etiqueta}
+            etiquetaB={parche.b.etiqueta}
+            a={jugadas.filter((j) => j.opcion_id === parche.a.id)}
+            b={jugadas.filter((j) => j.opcion_id === parche.b.id)}
+            yo={u.usuario}
+          />
+        )}
 
         <section aria-label="Opciones" className="space-y-3">
           {opciones.map((o) => {
@@ -358,6 +368,93 @@ function PanelParche({
           </Enviar>
         </Formulario>
       )}
+    </section>
+  );
+}
+
+// Quién está parchado contra quién: primero lo que aún no tiene rival y luego
+// cada cruce, de lo más reciente a lo más antiguo.
+function CrucesParche({
+  etiquetaA,
+  etiquetaB,
+  a,
+  b,
+  yo,
+}: {
+  etiquetaA: string;
+  etiquetaB: string;
+  a: JugadaCruce[];
+  b: JugadaCruce[];
+  yo: string;
+}) {
+  const { sinParchar, cruces } = cruzar(a, b);
+  const quien = (j: JugadaCruce, monto: number, lado: "a" | "b") => (
+    <span className={`min-w-0 ${lado === "b" ? "text-right" : ""}`}>
+      <span className={`block truncate font-medium ${j.usuario === yo ? "text-oro" : ""}`}>
+        {j.usuario}
+        {j.usuario === yo ? " (tú)" : ""}
+      </span>
+      <span className="block text-xs text-niebla">
+        {monto < j.monto ? `${soles(monto)} de sus ${soles(j.monto)}` : soles(monto)}
+      </span>
+      <span className="block text-xs text-niebla/70">{fecha(j.creado)}</span>
+    </span>
+  );
+  return (
+    <section aria-label="Cruces del parche" className="panel space-y-5 p-5">
+      <h2 className="text-2xl">Quién contra quién</h2>
+
+      <div>
+        <h3 className="mb-2 flex items-center gap-2 text-lg text-dire-claro">
+          Sin parchar
+          {sinParchar.length > 0 && (
+            <span className="cifra text-base">{soles(sinParchar.reduce((s, x) => s + x.monto, 0))}</span>
+          )}
+        </h3>
+        {sinParchar.length === 0 ? (
+          <p className="text-sm text-niebla">Todo está parchado: cada sol tiene rival.</p>
+        ) : (
+          <ul className="divide-y divide-white/[0.06] rounded-md border border-dire/30 bg-dire/5">
+            {sinParchar.map((x, k) => (
+              <li key={`${x.jugada.id}-${k}`} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2">
+                {quien(x.jugada, x.monto, "a")}
+                <span className="text-sm text-niebla">
+                  por {x.lado === "a" ? etiquetaA : etiquetaB}, sin rival
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {sinParchar.length > 0 && (
+          <p className="ayuda">
+            Si alguien apuesta por el otro bando, lo cubre. Si no, se devuelve al igualar o al bloquear las apuestas.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-2 grid grid-cols-[1fr_auto_1fr] gap-3 text-sm text-niebla">
+          <span className="truncate">{etiquetaA}</span>
+          <span />
+          <span className="truncate text-right">{etiquetaB}</span>
+        </div>
+        {cruces.length === 0 ? (
+          <p className="text-sm text-niebla">Todavía nadie está parchado: falta que alguien apueste por el otro bando.</p>
+        ) : (
+          <ul className="space-y-2">
+            {cruces.map((c, k) => (
+              <li
+                key={`${c.a.id}-${c.b.id}-${k}`}
+                className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-md border border-white/[0.07] bg-hondo/60 px-3 py-2"
+              >
+                {quien(c.a, c.monto, "a")}
+                <span className="cifra rounded bg-oro/10 px-2 py-0.5 text-sm text-oro">{soles(c.monto)}</span>
+                {quien(c.b, c.monto, "b")}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
