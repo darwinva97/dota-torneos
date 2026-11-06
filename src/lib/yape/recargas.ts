@@ -7,7 +7,7 @@ import { emitir } from "./bus";
 
 // Flujo de recarga, con un solo turno a la vez:
 //  1. El usuario pulsa «Recargar» y entra en la cola («en_cola»).
-//  2. Cuando nadie más tiene el turno, empieza el suyo («escuchando»): 30
+//  2. Cuando nadie más tiene el turno, empieza el suyo («escuchando»): 75
 //     segundos en los que es el único que puede recargar. Así cualquier Yape que
 //     llegue en ese rato es casi seguro suyo.
 //  3. El observador (yapi, que lee las notificaciones de Yape en el celular del
@@ -22,7 +22,7 @@ import { emitir } from "./bus";
 // vuelve a intentarlo en los 10 minutos siguientes, su turno no puede empezar
 // hasta pasado 1 minuto. Si en ese minuto llega otra persona, va primero.
 
-export const TURNO_MS = 30 * 1000;
+export const TURNO_MS = 75 * 1000; // 1 minuto y 15 segundos
 // Un Yape hecho en el último segundo tarda unos segundos en notificarse y en
 // pasar por yapi; el turno sigue reservado durante esta gracia tras el plazo.
 const GRACIA_MS = 20 * 1000;

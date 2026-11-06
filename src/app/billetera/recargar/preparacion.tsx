@@ -4,7 +4,7 @@ import { Copiar } from "@/components/copiar";
 import { Formulario, Enviar } from "@/components/formulario";
 import { accionAbrirRecarga } from "../../acciones/billetera";
 
-// Antes de empezar: el turno dura 30 segundos, así que el usuario se prepara
+// Antes de empezar: el turno dura 1 minuto y 15 segundos, así que el usuario se prepara
 // primero, dice cuánto va a yapear y el reloj solo arranca cuando pulsa
 // «Iniciar recarga».
 export function Preparacion({
@@ -57,7 +57,7 @@ export function Preparacion({
       texto: (
         <>
           Cuando pulses <strong className="text-pergamino">Iniciar recarga</strong> empieza tu turno de{" "}
-          <strong className="text-pergamino">30 segundos</strong>: yapea en cuanto aparezca la cuenta atrás. Si se te
+          <strong className="text-pergamino">1 minuto y 15 segundos</strong>: yapea en cuanto aparezca la cuenta atrás. Si se te
           pasa el tiempo, tu próximo intento esperará 1 minuto.
         </>
       ),

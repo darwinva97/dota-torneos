@@ -144,7 +144,7 @@ export function Escucha({
           )}
           <p className="text-sm text-niebla">
             Solo una persona recarga a la vez para reconocer bien cada Yape. Deja esta pantalla abierta: cuando empiece tu
-            turno tendrás 30 segundos para yapear{vivo.montoEsperado ? ` ${soles(vivo.montoEsperado)}` : ""}. <strong className="text-pergamino">No yapees todavía.</strong>
+            turno tendrás 1 minuto y 15 segundos para yapear{vivo.montoEsperado ? ` ${soles(vivo.montoEsperado)}` : ""}. <strong className="text-pergamino">No yapees todavía.</strong>
           </p>
         </section>
         {cancelar}

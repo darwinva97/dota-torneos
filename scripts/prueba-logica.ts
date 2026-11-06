@@ -476,8 +476,8 @@ const ana1 = R.ingresarPago({ externoId: "ana-1", monto: 500, nombre: "Ana Tor*"
 assert.equal(ana1.nuevo && ana1.recargaId, ra);
 const turnoB = R.recarga(rb)!;
 assert.equal(turnoB.estado, "escuchando");
-assert.equal(turnoB.expira - turnoB.inicio, 30_000, "el turno dura 30 segundos");
-// Beto no paga: el turno vence pasado 1:30 + 20 s de gracia.
+assert.equal(turnoB.expira - turnoB.inicio, 75_000, "el turno dura 1 minuto y 15 segundos");
+// Beto no paga: el turno vence pasado TURNO_MS + 20 s de gracia.
 avanzar(R.TURNO_MS + 19_000);
 assert.equal(R.recarga(rb)!.estado, "escuchando", "durante la gracia sigue reservado");
 avanzar(2_000);
@@ -518,7 +518,7 @@ const rc2 = R.abrirRecarga(qc, 500);
 const rd = R.abrirRecarga(qa, 500);
 assert.deepEqual([R.recarga(rc2)!.estado, R.recarga(rd)!.estado], ["en_cola", "en_cola"]);
 assert.equal(R.vistaRecarga(rd)!.delante, 2, "Beto con turno y Carla esperando");
-avanzar(60_000);
+avanzar(R.TURNO_MS + 21_000);
 assert.equal(R.recarga(rb5)!.estado, "vencida");
 assert.equal(R.recarga(rc2)!.estado, "escuchando", "Carla siguió en la pantalla y le tocó");
 assert.equal(R.recarga(rd)!.estado, "en_cola");

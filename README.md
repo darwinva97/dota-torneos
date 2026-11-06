@@ -89,7 +89,7 @@ Las apuestas al campeón del torneo no se tocan, y el premio sigue siendo de los
 1. «Recargar» abre una pantalla de preparación (abrir Yape, tener el número y el
    monto listos). El usuario escribe **el monto que va a yapear** y, al pulsar
    **«Iniciar recarga»**, entra en la **cola**. Solo una persona recarga a
-   la vez: cuando le toca, tiene un **turno exclusivo de 30 segundos** (más
+   la vez: cuando le toca, tiene un **turno exclusivo de 1 minuto y 15 segundos** (más
    20 s de gracia para que la notificación llegue) y solo cuentan los Yapes que
    llegan durante su turno. No hace falta subir captura.
 2. El turno termina al acreditarse el Yape, al pulsar «Es mío», al cancelar o al
