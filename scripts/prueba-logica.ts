@@ -711,6 +711,19 @@ T.reportarGanador(pl.id, eqLeones, la1, false);
 assert.equal(M.mercado(nueva.id)!.estado, "resuelto");
 assert.equal(total(), dineroL, "cambiar la alineación no crea ni pierde dinero");
 
+// Aporte del admin al pozo acumulado: suma al pozo sin tocar el saldo de nadie.
+{
+  const antesPozo = A.saldoAcumulado();
+  const jugadoresTotal = () => (conn.prepare("SELECT SUM(saldo) s FROM usuarios").get() as { s: number }).s;
+  const antesJugadores = jugadoresTotal();
+  A.aportarAcumulado(2000, "Premio del sábado", "jefe");
+  assert.equal(A.saldoAcumulado() - antesPozo, 2000);
+  assert.equal(jugadoresTotal(), antesJugadores, "no se toca el saldo de ningún jugador");
+  assert.ok(A.resumenAcumulado().aportes >= 2000);
+  assert.throws(() => A.aportarAcumulado(50, "Poco", "jefe"), /al menos/);
+  assert.throws(() => A.aportarAcumulado(500, "", "jefe"), /motivo/);
+}
+
 // Saldo insuficiente.
 assert.throws(() => mover(jugadores[4], -999999, "apuesta", "x"), /Saldo insuficiente/);
 console.log("Todo bien: la lógica de dinero cuadra.");

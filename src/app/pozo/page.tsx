@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Pozo acumulado" };
 export default function Pozo() {
   return (
     <>
-      <Titulo sub="El pozo de la página: se llena con la parte de las apuestas que no se reparte y se vacía en los premios de los torneos.">
+      <Titulo sub="El pozo de la página: se llena con la parte de las apuestas que no se reparte y con los aportes del admin, y se vacía en los premios de los torneos.">
         Pozo acumulado
       </Titulo>
       <Suspense fallback={<Cargando />}>
@@ -40,11 +40,12 @@ async function Contenido() {
         </p>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat etiqueta="Ganadores cobran">{r.pagoApuestas} %</Stat>
         <Stat etiqueta="Juntado con apuestas" tono="text-oro">
           {soles(r.deApuestas)}
         </Stat>
+        <Stat etiqueta="Aportado por el admin">{soles(r.aportes)}</Stat>
         <Stat etiqueta="Puesto en torneos">{soles(r.aTorneos)}</Stat>
       </section>
 

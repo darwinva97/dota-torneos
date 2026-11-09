@@ -46,6 +46,15 @@ export function moverAcumulado(monto: number, motivo: string, ref: { mercadoId?:
   });
 }
 
+// El admin pone dinero en el pozo acumulado (por ejemplo, un premio que
+// patrocina él o dinero que entró por fuera de Yape). No sale del saldo de
+// ningún jugador: queda como un aporte en el historial del pozo.
+export function aportarAcumulado(monto: number, motivo: string, admin: string) {
+  exigir(monto >= 100, "Aporta al menos S/ 1.00.");
+  exigir(motivo.trim().length >= 3, "Escribe el motivo del aporte.");
+  moverAcumulado(monto, `Aporte de ${admin}: ${motivo.trim()}`);
+}
+
 export type MovimientoAcumulado = {
   id: number;
   monto: number;
@@ -69,6 +78,8 @@ export function resumenAcumulado() {
     deApuestas: suma("mercado_id IS NOT NULL"),
     /** Puesto en premios de torneos (descontando lo que volvió de torneos cancelados). */
     aTorneos: -suma("mercado_id IS NULL AND torneo_id IS NOT NULL"),
+    /** Lo que puso el admin a mano. */
+    aportes: suma("mercado_id IS NULL AND torneo_id IS NULL AND monto > 0"),
     pagoApuestas: pagoApuestas(),
   };
 }

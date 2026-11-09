@@ -16,7 +16,7 @@ import {
   resolverRetiro,
 } from "@/lib/billetera";
 import * as R from "@/lib/yape/recargas";
-import { fijarPagoApuestas } from "@/lib/acumulado";
+import { aportarAcumulado, fijarPagoApuestas } from "@/lib/acumulado";
 
 const num = (fd: FormData, k: string) => Number(fd.get(k));
 
@@ -213,4 +213,17 @@ export async function accionDescartarPago(_: Estado, fd: FormData): Promise<Esta
 
 export async function accionPagoApuestas(_: Estado, fd: FormData): Promise<Estado> {
   return comoAdmin(() => fijarPagoApuestas(Number(fd.get("pago_pct"))), "Guardado. Vale para las apuestas que se creen desde ahora.");
+}
+
+export async function accionAportarAcumulado(_: Estado, fd: FormData): Promise<Estado> {
+  const admin = await exigirAdmin();
+  try {
+    const monto = leerSoles(fd.get("monto"));
+    exigir(monto, "Escribe cuánto aportas, por ejemplo 20.");
+    aportarAcumulado(monto, String(fd.get("motivo") ?? ""), admin.usuario);
+  } catch (e) {
+    return aEstado(e);
+  }
+  refresh();
+  return { ok: "Aporte sumado al pozo acumulado." };
 }

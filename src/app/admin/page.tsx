@@ -19,6 +19,7 @@ import { ListaMovimientos } from "@/components/movimientos";
 import { Cargando, Dinero, Estado, Stat, Titulo, Vacio, fecha } from "@/components/ui";
 import { FilaDeuda } from "@/components/deudas";
 import {
+  accionAportarAcumulado,
   accionAprobarRecarga,
   accionAsignarPago,
   accionCrearDeuda,
@@ -206,6 +207,31 @@ async function Contenido({ searchParams }: { searchParams: PageProps<"/admin">["
             </select>
           </label>
           <Enviar>Guardar</Enviar>
+        </Formulario>
+      </section>
+
+      <section className="panel grid gap-6 p-5 md:grid-cols-[1fr_auto]">
+        <div>
+          <h2 className="text-3xl">Aumentar el pozo acumulado</h2>
+          <p className="mt-1 max-w-[60ch] text-niebla">
+            Suma dinero al pozo sin quitárselo a ningún jugador: por ejemplo, un premio que pones tú o dinero que entró
+            por fuera de Yape. Queda en el historial del pozo con el motivo. Asegúrate de que ese dinero esté en el Yape del
+            pozo.
+          </p>
+        </div>
+        <Formulario accion={accionAportarAcumulado} className="flex flex-wrap items-end gap-3">
+          <label>
+            <span className="etiqueta">Monto</span>
+            <span className="flex items-center rounded-md border border-borde bg-hondo focus-within:border-oro">
+              <span className="pl-3 text-niebla">S/</span>
+              <input name="monto" required inputMode="decimal" placeholder="20" className="w-24 bg-transparent px-2 py-2 focus:outline-none" />
+            </span>
+          </label>
+          <label>
+            <span className="etiqueta">Motivo</span>
+            <input name="motivo" required placeholder="Premio del sábado" className="campo w-48" />
+          </label>
+          <Enviar>Sumar al pozo</Enviar>
         </Formulario>
       </section>
 
